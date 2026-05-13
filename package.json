@@ -1,0 +1,28 @@
+{
+  "name": "vue_next-app",
+  "type": "module",
+  "private": true,
+  "scripts": {
+    "build": "nuxt build",
+    "dev": "nuxt dev",
+    "generate": "nuxt generate",
+    "preview": "nuxt preview",
+    "postinstall": "nuxt prepare"
+  },
+  "dependencies": {
+    "@ant-design-vue/nuxt": "^1.4.6",
+    "@antdv-next/icons": "^1.0.6",
+    "@antdv-next/nuxt": "^1.0.5",
+    "@nuxt/eslint": "^1.15.2",
+    "@nuxt/image": "^2.0.0",
+    "@nuxt/ui": "^4.7.1",
+    "ant-design-vue": "^4.2.6",
+    "antdv-next": "^1.2.2",
+    "eslint": "^10.3.0",
+    "nuxt": "^4.4.5",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^6.0.3",
+    "vue": "^3.5.34",
+    "vue-router": "^5.0.6"
+  }
+}
