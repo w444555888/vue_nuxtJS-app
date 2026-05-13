@@ -7,7 +7,6 @@ export default defineNuxtConfig({
     '@nuxt/eslint',
     '@nuxt/image',
     '@nuxt/ui',
-    '@ant-design-vue/nuxt',
-    '@antdv-next/nuxt'
+    '@ant-design-vue/nuxt'
   ]
 })
