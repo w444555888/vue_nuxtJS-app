@@ -15,7 +15,7 @@ const chatStore = useChatStore()
 const { initSocket, onReceiveMessage, joinRoom } = useSocket()
 const { fetchRooms, fetchMessages } = useChatService()
 
-// 页面卸载时清理
+// 頁面卸載時清理
 onBeforeUnmount(() => {
   // 可選：斷開 Socket 連接
 })

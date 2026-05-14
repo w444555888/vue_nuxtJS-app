@@ -1,29 +1,22 @@
 const express = require("express");
 const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
-const { PrismaClient } = require("@prisma/client");
-const { PrismaPg } = require("@prisma/adapter-pg");
-const pg = require("pg");
+const prisma = require("../prisma");
 const { verifyToken } = require("../middleware/auth");
+const { successResponse, errorResponse } = require("../utils/responseHandler");
 
 const router = express.Router();
-
-// Prisma v7 PostgreSQL 连接
-const connectionString = process.env.DATABASE_URL;
-const pool = new pg.Pool({ connectionString });
-const adapter = new PrismaPg(pool);
-const prisma = new PrismaClient({ adapter });
 
 // 注册
 router.post("/register", async (req, res) => {
   const { email, username, password } = req.body;
 
   if (!email || !username || !password) {
-    return res.status(400).json({ error: "缺少必填字段" });
+    return errorResponse(res, "缺少必填字段", 400);
   }
 
   try {
-    // 检查用户是否存在
+    // 検查使用者是否存在
     const existingUser = await prisma.user.findFirst({
       where: {
         OR: [{ email }, { username }],
@@ -31,7 +24,7 @@ router.post("/register", async (req, res) => {
     });
 
     if (existingUser) {
-      return res.status(400).json({ error: "用户已存在" });
+      return errorResponse(res, "用戶已存在", 400);
     }
 
     // 密码加密
@@ -53,14 +46,13 @@ router.post("/register", async (req, res) => {
       { expiresIn: "7d" }
     );
 
-    res.status(201).json({
-      message: "注册成功",
+    return successResponse(res, {
       token,
-      user: { id: user.id, email: user.email, username: user.username },
-    });
+      user: { id: user.id, email: user.email, username: user.username }
+    }, "註冊成功", 201);
   } catch (error) {
     console.error("注册失败:", error);
-    res.status(500).json({ error: "注册失败" });
+    return errorResponse(res, "註冊失敗", 500);
   }
 });
 
@@ -69,7 +61,7 @@ router.post("/login", async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
-    return res.status(400).json({ error: "缺少必填字段" });
+    return errorResponse(res, "缺少必填字段", 400);
   }
 
   try {
@@ -79,13 +71,13 @@ router.post("/login", async (req, res) => {
     });
 
     if (!user) {
-      return res.status(401).json({ error: "邮箱或密码错误" });
+      return errorResponse(res, "郵箱或密碼錯誤", 401);
     }
 
     // 检查密码
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
-      return res.status(401).json({ error: "邮箱或密码错误" });
+      return errorResponse(res, "郵箱或密碼錯誤", 401);
     }
 
     // 生成 JWT
@@ -95,14 +87,13 @@ router.post("/login", async (req, res) => {
       { expiresIn: "7d" }
     );
 
-    res.json({
-      message: "登入成功",
+    return successResponse(res, {
       token,
-      user: { id: user.id, email: user.email, username: user.username },
-    });
+      user: { id: user.id, email: user.email, username: user.username }
+    }, "登入成功", 200);
   } catch (error) {
     console.error("登入失败:", error);
-    res.status(500).json({ error: "登入失败" });
+    return errorResponse(res, "登入失敗", 500);
   }
 });
 

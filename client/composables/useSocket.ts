@@ -34,7 +34,7 @@ export const useSocket = () => {
     })
 
     socket.value.on('error', (error: any) => {
-      console.error('❌ Socket 错误:', error)
+      console.error('❌ Socket 錯誤:', error)
     })
   }
 

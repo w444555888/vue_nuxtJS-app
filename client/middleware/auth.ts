@@ -1,16 +1,22 @@
-export default defineRouteMiddleware((to, from) => {
+import { defineNuxtRouteMiddleware, navigateTo } from 'nuxt/app'
+import type { RouteLocationNormalized } from 'vue-router'
+import { isClient } from '~/utils/environment'
+
+export default defineNuxtRouteMiddleware((to: RouteLocationNormalized, from: RouteLocationNormalized) => {
   const authStore = useAuthStore()
+  
+  // 只在客户端初始化認證
+  // SSR 環境 localStorage 不可用，會導致錯誤的重定向
+  if (isClient()) {
+    authStore.initAuth()
 
-  // 初始化认证状态
-  authStore.initAuth()
-
-  // 如果未认证且不在登入页，重定向到登入
-  if (!authStore.isAuthenticated && to.path !== '/login') {
-    return navigateTo('/login')
+    if (!authStore.isAuthenticated && to.path !== '/login') {
+      return navigateTo('/login')
+    }
+    
+    if (authStore.isAuthenticated && to.path === '/login') {
+      return navigateTo('/chat')
+    }
   }
-
-  // 如果已认证且在登入页，重定向到聊天
-  if (authStore.isAuthenticated && to.path === '/login') {
-    return navigateTo('/chat')
-  }
+  
 })

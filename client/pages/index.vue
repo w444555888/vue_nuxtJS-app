@@ -27,7 +27,7 @@
           <div class="feature-icon">
             <Users :size="34" stroke-width="1.5" />
           </div>
-          <div class="feature-title">群聊支持</div>
+          <div class="feature-title">群聚支援</div>
           <p>創建群聊，與多人同步討論</p>
         </div>
         <div class="feature-card">
@@ -72,7 +72,7 @@
 
     <!-- Footer -->
     <footer class="footer">
-      <p>&copy; 2025 Mike Chat. All rights reserved.</p>
+      <p>&copy; 2026 Mike Chat. All rights reserved.</p>
     </footer>
   </div>
 </template>
@@ -84,12 +84,6 @@
 
 
 <style scoped>
-* {
-  margin: 0;
-  padding: 0;
-  box-sizing: border-box;
-}
-
 .home-container {
   min-height: 100vh;
   background: linear-gradient(135deg, #f5f7fa 0%, #f0f4f8 100%);
@@ -97,9 +91,9 @@
   flex-direction: column;
 }
 
-/* Hero Section */
+/* Header Section */
 .hero {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #667eea 0%, #a894c7 100%);
   color: white;
   padding: 4rem 2rem;
   text-align: center;
@@ -207,7 +201,7 @@
   text-align: center;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
   transition: all 0.3s ease;
-  border-top: 4px solid linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  border-top: 4px solid linear-gradient(135deg, #667eea 0%, #a894c7 100%);
 }
 
 .feature-card:hover {
@@ -220,7 +214,7 @@
   justify-content: center;
   align-items: center;
   margin-bottom: 1rem;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #667eea 0%, #a894c7 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
 }
@@ -234,13 +228,13 @@
 
 .feature-card p {
   color: #6b7280;
-  font-size: 0.95rem;
+  font-size: 0.8rem;
   line-height: 1.6;
 }
 
 /* CTA Section */
 .cta {
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #667eea 0%, #a894c7 100%);
   color: white;
   padding: 3rem 2rem;
   text-align: center;

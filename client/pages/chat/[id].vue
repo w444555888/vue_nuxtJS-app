@@ -14,7 +14,7 @@ const route = useRoute()
 const { fetchMessages } = useChatService()
 const { joinRoom } = useSocket()
 
-// 当聊天室改变时加载消息
+// 當聊天室改變時載入訊息
 watch(
   () => route.params.id,
   async (newId) => {

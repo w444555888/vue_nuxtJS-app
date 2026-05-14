@@ -15,12 +15,12 @@ export const useChatStore = defineStore('chat', () => {
     return rooms.value.some((room: any) => room.unreadCount > 0)
   })
 
-  // 设置聊天室列表
+  // 設定聊天室列表
   const setRooms = (newRooms: any[]) => {
     rooms.value = newRooms
   }
 
-  // 添加或更新聊天室
+  // 新增或更新聊天室
   const updateRoom = (room: any) => {
     const index = rooms.value.findIndex((r) => r.id === room.id)
     if (index >= 0) {
@@ -30,18 +30,18 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  // 设置当前聊天室
+  // 設定當前聊天室
   const setCurrentRoom = (room: any) => {
     currentRoom.value = room
     messages.value = [] // 清空消息
   }
 
-  // 设置消息
+  // 設定訊息
   const setMessages = (newMessages: any[]) => {
     messages.value = newMessages
   }
 
-  // 添加消息
+  // 新增訊息
   const addMessage = (message: any) => {
     messages.value.push(message)
     
@@ -52,7 +52,7 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  // 添加多条消息
+  // 新增多条訊息
   const addMessages = (newMessages: any[]) => {
     messages.value.push(...newMessages)
   }
@@ -62,12 +62,12 @@ export const useChatStore = defineStore('chat', () => {
     messages.value = []
   }
 
-  // 设置在线用户
+  // 設定線上使用者
   const setOnlineUsers = (users: any[]) => {
     onlineUsers.value = users
   }
 
-  // 添加在线用户
+  // 新增線上使用者
   const addOnlineUser = (user: any) => {
     const exists = onlineUsers.value.some((u) => u.id === user.id)
     if (!exists) {
@@ -75,12 +75,12 @@ export const useChatStore = defineStore('chat', () => {
     }
   }
 
-  // 移除在线用户
+  // 移除線上使用者
   const removeOnlineUser = (userId: number) => {
     onlineUsers.value = onlineUsers.value.filter((u) => u.id !== userId)
   }
 
-  // 设置加载状态
+  // 設定載入狀態
   const setLoading = (loading: boolean) => {
     isLoading.value = loading
   }

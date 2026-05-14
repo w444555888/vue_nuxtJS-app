@@ -1,5 +1,5 @@
 export const useAuthService = () => {
-  const { $fetch } = useApi()
+  const { post } = useHttpClient()
   const authStore = useAuthStore()
   const router = useRouter()
 
@@ -7,18 +7,23 @@ export const useAuthService = () => {
   const register = async (email: string, username: string, password: string) => {
     try {
       authStore.setLoading(true)
-      const response = await $fetch('/api/auth/register', {
-        method: 'POST',
-        body: { email, username, password }
+      const result = await post('/api/auth/register', {
+        email,
+        username,
+        password
       })
 
-      authStore.setAuth(response.user, response.token)
-      return { success: true, data: response }
+      if (result.success) {
+        authStore.setAuth(result.data.user, result.data.token)
+        return { success: true, data: result.data, message: result.message }
+      } else {
+        return { success: false, message: result.message || result.error || '註冊失敗，請重試' }
+      }
     } catch (error: any) {
-      console.error('❌ 注册失败:', error)
+      console.error('註冊失敗:', error)
       return { 
         success: false, 
-        error: error.data?.error || '注册失败，请重试' 
+        error: error.message || error.error || '註冊失敗，請重試' 
       }
     } finally {
       authStore.setLoading(false)
@@ -29,18 +34,22 @@ export const useAuthService = () => {
   const login = async (email: string, password: string) => {
     try {
       authStore.setLoading(true)
-      const response = await $fetch('/api/auth/login', {
-        method: 'POST',
-        body: { email, password }
+      const result = await post('/api/auth/login', {
+        email,
+        password
       })
 
-      authStore.setAuth(response.user, response.token)
-      return { success: true, data: response }
+      if (result.success) {
+        authStore.setAuth(result.data.user, result.data.token)
+        return { success: true, data: result.data, message: result.message }
+      } else {
+        return { success: false, message: result.message || result.error || '登入失敗，請检查郵箱和密碼' }
+      }
     } catch (error: any) {
-      console.error('❌ 登入失败:', error)
+      console.error('登入失敗:', error)
       return { 
         success: false, 
-        error: error.data?.error || '登入失败，请检查邮箱和密码' 
+        error: error.message || error.error || '登入失敗，請检查郵箱和密碼'
       }
     } finally {
       authStore.setLoading(false)

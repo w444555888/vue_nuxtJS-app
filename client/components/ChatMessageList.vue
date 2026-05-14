@@ -11,7 +11,7 @@
         :key="message.id"
         :class="['message-group', { 'is-own': isOwnMessage(message) }]"
       >
-        <!-- 时间戳 -->
+        <!-- 時間戳 -->
         <div 
           v-if="shouldShowTime(index)" 
           class="time-divider"
@@ -60,7 +60,7 @@ const getDefaultAvatar = (username: string) => {
   return `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`
 }
 
-// 检查是否需要显示时间
+// 検查是否需要顯示時間
 const shouldShowTime = (index: number) => {
   if (index === 0) return true
   const current = new Date(chatStore.messages[index].createdAt)
@@ -69,7 +69,7 @@ const shouldShowTime = (index: number) => {
   return (current.getTime() - previous.getTime()) > 5 * 60 * 1000
 }
 
-// 格式化时间
+// 格式化時間
 const formatTime = (time: string) => {
   const date = new Date(time)
   const today = new Date()

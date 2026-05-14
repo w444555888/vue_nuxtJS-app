@@ -13,8 +13,12 @@ model User {
   username  String   @unique
   avatar    String?
 
-  memberships ChatRoomMember[]
-  messages    Message[]
+  memberships       ChatRoomMember[]
+  messages          Message[]
+  sentFriendRequests FriendRequest[] @relation("sender")
+  receivedFriendRequests FriendRequest[] @relation("receiver")
+  friendRelations1  Friend[] @relation("user1")
+  friendRelations2  Friend[] @relation("user2")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -57,4 +61,37 @@ model Message {
   room      ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
 
   createdAt DateTime @default(now())
+}
+
+// 好友請求模型
+model FriendRequest {
+  id        Int      @id @default(autoincrement())
+  
+  senderId  Int
+  receiverId Int
+  
+  sender    User @relation("sender", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver  User @relation("receiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  
+  status    String @default("pending") // pending, accepted, rejected
+  
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  
+  @@unique([senderId, receiverId]) // 防止重複請求
+}
+
+// 好友關係模型
+model Friend {
+  id        Int      @id @default(autoincrement())
+  
+  userId1   Int
+  userId2   Int
+  
+  user1     User @relation("user1", fields: [userId1], references: [id], onDelete: Cascade)
+  user2     User @relation("user2", fields: [userId2], references: [id], onDelete: Cascade)
+  
+  createdAt DateTime @default(now())
+  
+  @@unique([userId1, userId2]) // 防止重複關係
 }

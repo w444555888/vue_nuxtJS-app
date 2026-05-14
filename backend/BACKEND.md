@@ -2,11 +2,11 @@
 
 ## 项目概览
 
-这是一个基于 **Express + Socket.io + Prisma** 的实时聊天后端系统，支持：
-- 用户认证（JWT）
-- 实时聊天（WebSocket）
+這是一個基於 **Express + Socket.io + Prisma** 的實時聊天後端系統，支持：
+- 使用者認證（JWT）
+- 實時聊天（WebSocket）
 - PostgreSQL 数据库
-- 密码加密（bcryptjs）
+- 密碼加密（bcryptjs）
 
 ---
 
@@ -30,80 +30,80 @@ backend/
 │
 ├─ .env                     # 环境变量
 ├─ package.json             # 依赖管理
-└─ node_modules/            # 已安装包
+└─ node_modules/            # 已安裝套件
 ```
 
 ---
 
 ## 核心依赖说明
 
-### 生产依赖
+### 生產依賴
 
 | 包名 | 版本 | 用途 |
 |------|------|------|
 | **express** | ^5.2.1 | Web 框架 |
-| **socket.io** | ^4.8.3 | 实时通信 |
-| **@prisma/client** | ^7.8.0 | ORM 数据库驱动 |
-| **prisma** | ^7.8.0 | 数据库 CLI 工具 |
-| **cors** | ^2.8.6 | 跨域资源共享 |
-| **dotenv** | ^17.4.2 | 环境变量加载 |
-| **jsonwebtoken** | 最新 | JWT 认证 |
-| **bcryptjs** | 最新 | 密码加密 |
+| **socket.io** | ^4.8.3 | 實時通信 |
+| **@prisma/client** | ^7.8.0 | ORM 資料庫驅動 |
+| **prisma** | ^7.8.0 | 資料庫 CLI 工具 |
+| **cors** | ^2.8.6 | 跨域資源共享 |
+| **dotenv** | ^17.4.2 | 環境變數載入 |
+| **jsonwebtoken** | 最新 | JWT 認證 |
+| **bcryptjs** | 最新 | 密碼加密 |
 
-### 开发依赖
+### 開發依賴
 
 | 包名 | 用途 |
 |------|------|
-| **nodemon** | 自动重启开发服务器 |
+| **nodemon** | 自動重啓開發伺勑器 |
 
 ---
 
-## 快速开始
+## 快速開始
 
-### 1️⃣ 安装数据库（PostgreSQL）
+### 1️⃣ 安裝資料庫（PostgreSQL）
 
 ```bash
-# Windows 用户
-# 安装 PostgreSQL（https://www.postgresql.org/download/windows/）
+# Windows 使用者
+# 安裝 PostgreSQL（https://www.postgresql.org/download/windows/）
 
-# 创建数据库
+# 建立資料庫
 createdb chat_db
 
-# 或使用 pgAdmin 图形化工具创建
+# 或使用 pgAdmin 圖形化工具建立
 ```
 
-### 2️⃣ 配置环境变量
+### 2️⃣ 設定環境變數
 
-编辑 `.env` 文件：
+編輯 `.env` 檔案：
 ```env
-DATABASE_URL="postgresql://用户:密码@localhost:5432/chat_db"
-JWT_SECRET="你的-super-secret-密钥"
+DATABASE_URL="postgresql://使用者:密碼@localhost:5432/chat_db"
+JWT_SECRET="你的-super-secret-密鑰"
 PORT=3001
 NODE_ENV=development
 CORS_ORIGIN="http://localhost:3000"
 ```
 
-### 3️⃣ 初始化数据库
+### 3️⃣ 初始化資料庫
 
 ```bash
-# 运行 Prisma 迁移（创建表）
+# 執行 Prisma 遷移（建立表格）
 npm run prisma:migrate
 
-# 或生成客户端（如果 schema 已创建）
+# 或生成客户端（如果 schema 已建立）
 npm run prisma:generate
 ```
 
-### 4️⃣ 启动开发服务器
+### 4️⃣ 啟動開發伺勑器
 
 ```bash
-# 开发模式（支持热重启）
+# 開發模式（支持熱重啟）
 npm run dev
 
 # 或生产模式
 npm start
 ```
 
-**输出示例：**
+**輸出範例：**
 ```
 聊天服务器已启动
 地址: http://localhost:3001

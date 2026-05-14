@@ -42,8 +42,8 @@
             required
           />
         </div>
-        <button type="submit" class="submit-btn" :disabled="isLoading">
-          {{ isLoading ? '登入中...' : '登入' }}
+        <button type="submit" class="submit-btn" :disabled="authStore.isLoading">
+          {{ authStore.isLoading ? '登入中...' : '登入' }}
         </button>
       </form>
 
@@ -77,15 +77,10 @@
             required
           />
         </div>
-        <button type="submit" class="submit-btn" :disabled="isLoading">
-          {{ isLoading ? '註冊中...' : '註冊' }}
+        <button type="submit" class="submit-btn" :disabled="authStore.isLoading">
+          {{ authStore.isLoading ? '註冊中...' : '註冊' }}
         </button>
       </form>
-
-      <!-- 錯誤訊息 -->
-      <div v-if="errorMessage" class="error-message">
-        {{ errorMessage }}
-      </div>
     </div>
   </div>
 </template>
@@ -93,10 +88,12 @@
 <script setup lang="ts">
 import { ref } from 'vue'
 import { MessageCircle } from 'lucide-vue-next'
+import { message } from 'ant-design-vue'
 
 const isLogin = ref(true)
-const isLoading = ref(false)
-const errorMessage = ref('')
+const router = useRouter()
+const authService = useAuthService()
+const authStore = useAuthStore()
 
 const loginForm = ref({
   email: '',
@@ -110,35 +107,53 @@ const registerForm = ref({
 })
 
 const handleLogin = async () => {
-  errorMessage.value = ''
-  isLoading.value = true
   if (!loginForm.value.email || !loginForm.value.password) {
-    errorMessage.value = '郵箱和密碼不能為空'
-    isLoading.value = false
+    message.error('郵箱和密碼不能為空')
     return
   }
-  console.log('登入:', loginForm.value)
-  isLoading.value = false
+  
+  const result = await authService.login(
+    loginForm.value.email,
+    loginForm.value.password
+  )
+  
+  if (result.success) {
+    message.success(result.message || '登入成功！')
+    loginForm.value = { email: '', password: '' }
+    setTimeout(() => {
+      router.push('/chat')
+    }, 600)
+  } else {
+    message.error(result.message || '登入失敗，請重試')
+  }
 }
 
 const handleRegister = async () => {
-  errorMessage.value = ''
-  isLoading.value = true
-  
   if (registerForm.value.password.length < 6) {
-    errorMessage.value = '密碼至少需要6位'
-    isLoading.value = false
+    message.error('密碼至少需要6位')
     return
   }
   
   if (!registerForm.value.email || !registerForm.value.username) {
-    errorMessage.value = '所有欄位都不能為空'
-    isLoading.value = false
+    message.error('所有欄位都不能為空')
     return
   }
   
-  console.log('註冊:', registerForm.value)
-  isLoading.value = false
+  const result = await authService.register(
+    registerForm.value.email,
+    registerForm.value.username,
+    registerForm.value.password
+  )
+  
+  if (result.success) {
+    message.success(result.message || '註冊成功！')
+    registerForm.value = { email: '', username: '', password: '' }
+    setTimeout(() => {
+      router.push('/chat')
+    }, 600)
+  } else {
+    message.error(result.message || '註冊失敗，請重試')
+  }
 }
 </script>
 
@@ -149,7 +164,7 @@ const handleRegister = async () => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #667eea 0%, #a894c7 100%);
 }
 
 .auth-box {
@@ -239,7 +254,7 @@ const handleRegister = async () => {
 .submit-btn {
   padding: 12px;
   border: none;
-  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  background: linear-gradient(135deg, #667eea 0%, #a894c7 100%);
   color: white;
   font-size: 16px;
   font-weight: 600;
@@ -257,14 +272,5 @@ const handleRegister = async () => {
 .submit-btn:disabled {
   opacity: 0.6;
   cursor: not-allowed;
-}
-
-.error-message {
-  padding: 12px;
-  background: #fff2f0;
-  color: #ff4d4f;
-  border-radius: 6px;
-  font-size: 14px;
-  text-align: center;
 }
 </style>

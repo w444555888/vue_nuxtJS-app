@@ -1,5 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
+import { getFromStorage, setToStorage, removeFromStorage } from '~/utils/environment'
 
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<any>(null)
@@ -9,35 +10,41 @@ export const useAuthStore = defineStore('auth', () => {
 
   // 初始化：从本地存储读取
   const initAuth = () => {
-    const storedToken = localStorage.getItem('auth_token')
-    const storedUser = localStorage.getItem('auth_user')
-    
-    if (storedToken) {
-      token.value = storedToken
-    }
-    
-    if (storedUser) {
-      user.value = JSON.parse(storedUser)
+    try {
+      const storedToken = getFromStorage('auth_token')
+      const storedUser = getFromStorage('auth_user')
+      
+      if (storedToken) {
+        token.value = storedToken
+      }
+      
+      if (storedUser) {
+        user.value = JSON.parse(storedUser)
+      }
+    } catch (error) {
+      console.error('Failed to load auth from localStorage:', error)
     }
   }
 
-  // 设置用户和 Token
+  // 設定使用者和 Token
   const setAuth = (newUser: any, newToken: string) => {
     user.value = newUser
     token.value = newToken
-    localStorage.setItem('auth_token', newToken)
-    localStorage.setItem('auth_user', JSON.stringify(newUser))
+    
+    setToStorage('auth_token', newToken)
+    setToStorage('auth_user', JSON.stringify(newUser))
   }
 
-  // 清除认证
+  // 清除認證
   const clearAuth = () => {
     user.value = null
     token.value = null
-    localStorage.removeItem('auth_token')
-    localStorage.removeItem('auth_user')
+    
+    removeFromStorage('auth_token')
+    removeFromStorage('auth_user')
   }
 
-  // 设置加载状态
+  // 設定載入狀態
   const setLoading = (loading: boolean) => {
     isLoading.value = loading
   }

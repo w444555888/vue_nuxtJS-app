@@ -10,8 +10,10 @@ const verifyToken = (req, res, next) => {
 
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
-    req.userId = decoded.id;
-    req.username = decoded.username;
+    req.user = {
+      id: decoded.id,
+      username: decoded.username
+    };
     next();
   } catch (error) {
     return res.status(403).json({ error: "Token 无效或过期" });
