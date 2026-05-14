@@ -16,7 +16,7 @@ router.post("/register", async (req, res) => {
   }
 
   try {
-    // 検查使用者是否存在
+    // 檢查使用者是否存在
     const existingUser = await prisma.user.findFirst({
       where: {
         OR: [{ email }, { username }],
@@ -30,7 +30,7 @@ router.post("/register", async (req, res) => {
     // 密码加密
     const hashedPassword = await bcrypt.hash(password, 10);
 
-    // 创建用户
+    // 創建用戶
     const user = await prisma.user.create({
       data: {
         email,
@@ -97,7 +97,7 @@ router.post("/login", async (req, res) => {
   }
 });
 
-// 获取当前用户信息
+// 獲取當前用戶信息
 router.get("/me", verifyToken, async (req, res) => {
   try {
     const user = await prisma.user.findUnique({
@@ -125,7 +125,7 @@ router.get("/me", verifyToken, async (req, res) => {
   }
 });
 
-// 验证 token
+// 驗證 JWT Token
 router.post("/verify", verifyToken, (req, res) => {
   res.json({
     message: "Token 有效",

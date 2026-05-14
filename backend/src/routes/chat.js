@@ -5,10 +5,20 @@ const { successResponse, errorResponse } = require("../utils/responseHandler");
 
 const router = express.Router();
 
-// 獲取所有聊天室
+// 獲取所有聊天室（只返回當前用戶參與的）
 router.get("/rooms", verifyToken, async (req, res) => {
   try {
+    const userId = req.user.id; // 取得當前用戶ID
+
+    // 只查詢當前用戶是成員的聊天室
     const rooms = await prisma.chatRoom.findMany({
+      where: {
+        members: {
+          some: {
+            userId: userId, // 關鍵：只返回當前用戶在的房間
+          },
+        },
+      },
       include: {
         _count: {
           select: { messages: true, members: true },
@@ -20,6 +30,9 @@ router.get("/rooms", verifyToken, async (req, res) => {
             },
           },
         },
+      },
+      orderBy: {
+        createdAt: "desc", // 按創建時間倒序
       },
     });
 
@@ -37,7 +50,7 @@ router.get("/rooms", verifyToken, async (req, res) => {
 
     return successResponse(res, formattedRooms, "獲取聊天室列表成功", 200);
   } catch (error) {
-    console.error("❌ 獲取聊天室失敗:", error);
+    console.error("獲取聊天室失敗:", error);
     return errorResponse(res, error, 500);
   }
 });
@@ -45,22 +58,38 @@ router.get("/rooms", verifyToken, async (req, res) => {
 // 創建聊天室
 router.post("/rooms", verifyToken, async (req, res) => {
   const { name, description } = req.body;
+  const userId = req.user.id; // 取得當前用戶ID
 
   if (!name) {
     return errorResponse(res, "聘天室名稱不能為空", 400);
   }
 
   try {
+    // 創建聊天室並同時加入創建者為成員
     const room = await prisma.chatRoom.create({
       data: {
         name,
         description,
+        members: {
+          create: {
+            userId: userId, // 創建者自動加入
+          },
+        },
+      },
+      include: {
+        members: {
+          select: {
+            user: {
+              select: { id: true, username: true, avatar: true },
+            },
+          },
+        },
       },
     });
 
     return successResponse(res, room, "聊天室創建成功", 201);
   } catch (error) {
-    console.error("❌ 創建聊天室失敗:", error);
+    console.error("創建聊天室失敗:", error);
     return errorResponse(res, error, 500);
   }
 });
@@ -86,7 +115,7 @@ router.delete("/rooms/:roomId", verifyToken, async (req, res) => {
 
     return successResponse(res, deletedRoom, "聊天室已刪除", 200);
   } catch (error) {
-    console.error("❌ 刪除聊天室失敗:", error);
+    console.error("刪除聊天室失敗:", error);
     return errorResponse(res, error, 500);
   }
 });
@@ -154,7 +183,52 @@ router.post("/rooms/:roomId/invite", verifyToken, async (req, res) => {
       200
     );
   } catch (error) {
-    console.error("❌ 邀請好友失敗:", error);
+    console.error("邀請好友失敗:", error);
+    return errorResponse(res, error, 500);
+  }
+});
+
+// 發送聊天消息
+router.post("/rooms/:roomId/messages", verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { roomId } = req.params;
+    const { content } = req.body;
+
+    if (!content || !content.trim()) {
+      return errorResponse(res, "消息內容不能為空", 400);
+    }
+
+    // 驗證用戶是否在聊天室
+    const member = await prisma.chatRoomMember.findUnique({
+      where: {
+        userId_roomId: {
+          userId: userId,
+          roomId: parseInt(roomId),
+        },
+      },
+    });
+
+    if (!member) {
+      return errorResponse(res, "你不是此聊天室的成員", 403);
+    }
+
+    const message = await prisma.message.create({
+      data: {
+        content: content.trim(),
+        userId: userId,
+        roomId: parseInt(roomId),
+      },
+      include: {
+        user: {
+          select: { id: true, username: true, avatar: true },
+        },
+      },
+    });
+
+    return successResponse(res, message, "消息已發送", 201);
+  } catch (error) {
+    console.error("發送消息失敗:", error);
     return errorResponse(res, error, 500);
   }
 });
@@ -177,7 +251,7 @@ router.get("/rooms/:roomId/messages", verifyToken, async (req, res) => {
 
     return successResponse(res, messages, "獲取消息成功", 200);
   } catch (error) {
-    console.error("❌ 獲取消息失敗:", error);
+    console.error("獲取消息失敗:", error);
     return errorResponse(res, error, 500);
   }
 });

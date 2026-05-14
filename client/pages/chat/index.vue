@@ -64,13 +64,13 @@
           </button>
         </div>
       </div>
-      <div v-else class="room-detail">
-        <div class="room-title">{{ selectedRoom.name }}</div>
-        <p class="room-subtitle">{{ selectedRoom.description }}</p>
-        <div class="room-members">
-          成員數: {{ selectedRoom.memberCount || '未知' }}
-        </div>
-      </div>
+      <ChatRoom 
+        v-else 
+        :room="selectedRoom"
+        :current-user-id="authStore.user?.id || 0"
+        @invite="() => { showInviteModal = true; inviteTargetRoom = selectedRoom }"
+        @message-sent="() => {}"
+      />
     </main>
 
     <!-- 右侧面板 -->
@@ -216,6 +216,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
+import ChatRoom from '~/components/ChatRoom.vue'
 
 definePageMeta({
   layout: 'chat',
@@ -744,35 +745,253 @@ onMounted(async () => {
   color: #666;
 }
 
-.room-detail {
-  padding: 24px;
-  flex: 1;
-  overflow-y: auto;
+/* 聊天室頭部 */
+.chat-header {
+  padding: 16px 24px;
+  border-bottom: 1px solid #e8e8e8;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: linear-gradient(135deg, #fafbfc 0%, #f5f7fa 100%);
+  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
 }
 
-.room-title {
-  font-size: 28px;
+.header-left {
+  flex: 1;
+  min-width: 0;
+}
+
+.chat-title {
+  margin: 0;
+  font-size: 18px;
   font-weight: 700;
-  margin-bottom: 12px;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.chat-subtitle {
+  margin: 4px 0 0 0;
+  font-size: 13px;
+  color: #999;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.header-right {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.member-count {
+  font-size: 13px;
+  color: #666;
+  font-weight: 500;
+  white-space: nowrap;
+}
+
+.btn-icon-small {
+  width: 32px;
+  height: 32px;
+  border: none;
+  background: linear-gradient(135deg, #667eea 0%, #a894c7 100%);
+  color: white;
+  border-radius: 50%;
+  cursor: pointer;
+  font-weight: 600;
+  font-size: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+
+  &:hover {
+    transform: scale(1.1);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+  }
+}
+
+/* 消息容器 */
+.messages-container {
+  flex: 1;
+  overflow-y: auto;
+  padding: 16px 24px;
+  background: white;
+  display: flex;
+  flex-direction: column;
+
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: #d9d9d9;
+    border-radius: 3px;
+
+    &:hover {
+      background: #999;
+    }
+  }
+}
+
+.empty-messages {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+  font-size: 14px;
+  text-align: center;
+}
+
+/* 消息列表 */
+.messages-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.message-item {
+  display: flex;
+  gap: 12px;
+  align-items: flex-end;
+  animation: slideIn 0.3s ease;
+
+  &.own {
+    flex-direction: row-reverse;
+    align-items: flex-end;
+  }
+
+  &.own .message-content {
+    align-items: flex-end;
+  }
+
+  &.own .message-text {
+    background: linear-gradient(135deg, #667eea 0%, #a894c7 100%);
+    color: white;
+  }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.message-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  overflow: hidden;
+  background: #f0f0f0;
+
+  img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+}
+
+.message-content {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-width: 60%;
+  align-items: flex-start;
+}
+
+.message-header {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.message-author {
+  font-size: 13px;
+  font-weight: 600;
   color: #333;
 }
 
-.room-subtitle {
-  font-size: 15px;
-  color: #666;
-  margin-bottom: 20px;
+.message-time {
+  font-size: 12px;
+  color: #999;
+}
+
+.message-text {
+  padding: 10px 14px;
+  background: #f0f2f5;
+  border-radius: 12px;
+  word-break: break-word;
+  font-size: 14px;
+  color: #333;
   line-height: 1.5;
 }
 
-.room-members {
+/* 聊天輸入框區域 */
+.chat-input-area {
+  padding: 16px 24px;
+  border-top: 1px solid #e8e8e8;
+  background: white;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+}
+
+.chat-input {
+  flex: 1;
+  padding: 10px 14px;
+  border: 1px solid #d9d9d9;
+  border-radius: 8px;
   font-size: 14px;
-  color: #666;
-  padding: 12px 16px;
-  background: linear-gradient(135deg, #667eea10 0%, #a894c710 100%);
-  border: 1px solid #e8e8e8;
+  font-family: inherit;
+  transition: all 0.2s;
+
+  &:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    background: #fafbfc;
+  }
+
+  &::placeholder {
+    color: #bbb;
+  }
+}
+
+.btn-send {
+  padding: 10px 20px;
+  background: linear-gradient(135deg, #667eea 0%, #a894c7 100%);
+  color: white;
+  border: none;
   border-radius: 6px;
-  display: inline-block;
-  font-weight: 500;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+  white-space: nowrap;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+  }
+
+  &:active {
+    transform: translateY(0);
+  }
 }
 
 /* 右侧面板 */

@@ -18,7 +18,7 @@ export const useChatService = () => {
       chatStore.setRooms(roomsWithUnread)
       return { success: result.success, data: rooms }
     } catch (error: any) {
-      console.error('❌ 获取聊天室失败:', error)
+      console.error('獲取聊天室失敗:', error)
       return { success: false, error }
     } finally {
       chatStore.setLoading(false)
@@ -34,7 +34,7 @@ export const useChatService = () => {
       chatStore.updateRoom({ ...room, unreadCount: 0 })
       return { success: result.success, data: room, message: result.message }
     } catch (error: any) {
-      console.error('❌ 建立聊天室失敗:', error)
+      console.error('建立聊天室失敗:', error)
       return { success: false, error: error.message, message: error.message }
     }
   }
@@ -45,7 +45,7 @@ export const useChatService = () => {
       const result = await deleteRequest(`/api/chat/rooms/${roomId}`)
       return { success: result.success, data: result.data, message: result.message }
     } catch (error: any) {
-      console.error('❌ 删除聊天室失败:', error)
+      console.error('刪除聊天室失敗:', error)
       return { success: false, error: error.message, message: error.message }
     }
   }
@@ -58,7 +58,7 @@ export const useChatService = () => {
       })
       return { success: result.success, data: result.data, message: result.message }
     } catch (error: any) {
-      console.error('❌ 邀请好友失败:', error)
+      console.error('邀请好友失败:', error)
       return { success: false, error: error.message, message: error.message }
     }
   }
@@ -85,10 +85,21 @@ export const useChatService = () => {
       chatStore.setMessages(formattedMessages)
       return { success: result.success, data: formattedMessages }
     } catch (error: any) {
-      console.error('❌ 获取消息失败:', error)
+      console.error('獲取消息失敗:', error)
       return { success: false, error }
     } finally {
       chatStore.setLoading(false)
+    }
+  }
+
+  // 發送聊天室消息
+  const sendMessage = async (roomId: number, content: string) => {
+    try {
+      const result = await post(`/api/chat/rooms/${roomId}/messages`, { content })
+      return { success: result.success, data: result.data, message: result.message }
+    } catch (error: any) {
+      console.error('發送消息失敗:', error)
+      return { success: false, error: error.message, message: error.message }
     }
   }
 
@@ -97,6 +108,7 @@ export const useChatService = () => {
     createRoom,
     deleteRoom,
     inviteFriendsToRoom,
-    fetchMessages
+    fetchMessages,
+    sendMessage
   }
 }

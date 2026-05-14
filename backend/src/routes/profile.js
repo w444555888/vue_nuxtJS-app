@@ -29,7 +29,7 @@ router.get("/me", verifyToken, async (req, res) => {
 
     return successResponse(res, user, "獲取個人資料成功", 200);
   } catch (error) {
-    console.error("❌ 獲取個人資料失敗:", error);
+    console.error("獲取個人資料失敗:", error);
     return errorResponse(res, error, 500);
   }
 });
@@ -121,7 +121,7 @@ router.patch("/update", verifyToken, async (req, res) => {
       200
     );
   } catch (error) {
-    console.error("❌ 更新個人資料失敗:", error);
+    console.error("更新個人資料失敗:", error);
     return errorResponse(res, error, 500);
   }
 });

@@ -54,9 +54,10 @@ module.exports = (io) => {
         io.to(`room_${roomId}`).emit("receive_message", {
           id: message.id,
           content: message.content,
-          userId: message.user.username,
+          userId: message.user.id,
+          username: message.user.username,
           avatar: message.user.avatar,
-          timestamp: message.createdAt,
+          createdAt: message.createdAt,
         });
 
         console.log(`新消息 [房间 ${roomId}]: ${content}`);

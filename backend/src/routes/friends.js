@@ -37,7 +37,7 @@ router.get("/list", verifyToken, async (req, res) => {
 
     return successResponse(res, friendList, "獲取好友列表成功", 200);
   } catch (error) {
-    console.error("❌ 獲取好友列表失敗:", error);
+    console.error("獲取好友列表失敗:", error);
     return errorResponse(res, error, 500);
   }
 });
@@ -113,7 +113,7 @@ router.post("/request/send", verifyToken, async (req, res) => {
       200
     );
   } catch (error) {
-    console.error("❌ 發送好友請求失敗:", error);
+    console.error("發送好友請求失敗:", error);
     return errorResponse(res, error, 500);
   }
 });
@@ -138,7 +138,7 @@ router.get("/requests/pending", verifyToken, async (req, res) => {
 
     return successResponse(res, requests, "獲取待處理請求成功", 200);
   } catch (error) {
-    console.error("❌ 獲取待處理請求失敗:", error);
+    console.error("獲取待處理請求失敗:", error);
     return errorResponse(res, error, 500);
   }
 });
@@ -189,7 +189,7 @@ router.post("/request/accept/:requestId", verifyToken, async (req, res) => {
 
     return successResponse(res, friend, "好友請求已接受", 200);
   } catch (error) {
-    console.error("❌ 接受好友請求失敗:", error);
+    console.error("接受好友請求失敗:", error);
     return errorResponse(res, error, 500);
   }
 });
@@ -221,7 +221,7 @@ router.post("/request/reject/:requestId", verifyToken, async (req, res) => {
 
     return successResponse(res, updated, "好友請求已拒絕", 200);
   } catch (error) {
-    console.error("❌ 拒絕好友請求失敗:", error);
+    console.error("拒絕好友請求失敗:", error);
     return errorResponse(res, error, 500);
   }
 });
@@ -253,7 +253,7 @@ router.delete("/:friendId", verifyToken, async (req, res) => {
 
     return successResponse(res, deleted, "已刪除好友", 200);
   } catch (error) {
-    console.error("❌ 刪除好友失敗:", error);
+    console.error("刪除好友失敗:", error);
     return errorResponse(res, error, 500);
   }
 });
