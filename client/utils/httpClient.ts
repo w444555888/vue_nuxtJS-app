@@ -40,30 +40,61 @@ const createHttpClient = (): AxiosInstance => {
     return config
   })
 
-  // 攔截器
+  // 攔截器 - 統一錯誤處理
   instance.interceptors.response.use(
     (response: any) => {
       return response  
     },
     (error: AxiosError) => {
       // 統一錯誤格式
+      const statusCode = error.response?.status || 500
+      const errorData = error.response?.data as any
       const errorResponse: ApiResponse = {
         success: false,
-        code: error.response?.status || 500,
-        message: error.response?.statusText || '請求失敗',
+        code: statusCode,
+        message: errorData?.message || error.response?.statusText || '請求失敗',
         data: null
       }
 
-      if (error.response?.status === 401) {
-        // Token 過期
+      // 401 未授權 - 清除認證並跳轉登入頁
+      if (statusCode === 401) {
         errorResponse.message = 'Token 已過期，請重新登入'
         authStore.clearAuth()
         router.push('/login')
-      } else if (error.response?.data) {
-        const errorData = error.response.data as any
-        errorResponse.message = errorData.message || '請求失敗'
+        return Promise.reject(errorResponse)
       }
 
+      // 403 禁止訪問 
+      if (statusCode === 403) {
+        console.error('403 Forbidden:', errorResponse.message)
+        throw createError({
+          status: 403,
+          statusText: 'Forbidden',
+          message: errorResponse.message || '您無權訪問此資源',
+          fatal: true
+        })
+      }
+
+      // 404 資源不存在 - 跳回首頁
+      if (statusCode === 404) {
+        console.warn('404 Not Found:', errorResponse.message)
+        router.push('/')
+        return Promise.reject(errorResponse)
+      }
+
+      // 5xx 服務器錯誤 
+      if (statusCode >= 500) {
+        console.error('5xx Server Error:', errorResponse.message)
+        throw createError({
+          status: statusCode,
+          statusText: 'Server Error',
+          message: errorResponse.message || '服務器發生錯誤，請稍後再試',
+          fatal: true
+        })
+      }
+
+      // 其他錯誤只記錄警告
+      console.warn('API Error:', errorResponse.message)
       return Promise.reject(errorResponse)
     }
   )
