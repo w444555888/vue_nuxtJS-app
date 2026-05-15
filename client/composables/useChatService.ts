@@ -1,5 +1,5 @@
 export const useChatService = () => {
-  const { get, post, delete: deleteRequest } = useHttpClient()
+  const { get, post, patch, delete: deleteRequest } = useHttpClient()
   const chatStore = useChatStore()
 
   // 获取聊天室列表
@@ -103,12 +103,36 @@ export const useChatService = () => {
     }
   }
 
+  // 編輯聊天室消息
+  const editMessage = async (roomId: number, messageId: number, content: string) => {
+    try {
+      const result = await patch(`/api/chat/rooms/${roomId}/messages/${messageId}`, { content })
+      return { success: result.success, data: result.data, message: result.message }
+    } catch (error: any) {
+      console.error('編輯消息失敗:', error)
+      return { success: false, error: error.message, message: error.message }
+    }
+  }
+
+  // 刪除聊天室消息
+  const deleteMessage = async (roomId: number, messageId: number) => {
+    try {
+      const result = await deleteRequest(`/api/chat/rooms/${roomId}/messages/${messageId}`)
+      return { success: result.success, data: result.data, message: result.message }
+    } catch (error: any) {
+      console.error('刪除消息失敗:', error)
+      return { success: false, error: error.message, message: error.message }
+    }
+  }
+
   return {
     fetchRooms,
     createRoom,
     deleteRoom,
     inviteFriendsToRoom,
     fetchMessages,
-    sendMessage
+    sendMessage,
+    editMessage,
+    deleteMessage
   }
 }

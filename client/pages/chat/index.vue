@@ -68,7 +68,7 @@
         v-else 
         :room="selectedRoom"
         :current-user-id="authStore.user?.id || 0"
-        @invite="() => { showInviteModal = true; inviteTargetRoom = selectedRoom }"
+        @invite="inviteFriendsToRoom(selectedRoom)"
         @message-sent="() => {}"
       />
     </main>
@@ -195,17 +195,18 @@
     <div v-if="showInviteModal" class="modal-overlay" @click.self="showInviteModal = false">
       <div class="modal-content">
         <h2>邀請好友到 {{ inviteTargetRoom?.name }}</h2>
+        <p style="color: #999; font-size: 12px; margin: -12px 0 16px 0">已選擇 {{ selectedFriendsForInvite.length }} 位好友</p>
         <div class="modal-form">
-          <div v-if="friends.length === 0" class="empty-state">暫無好友可邀請</div>
-          <div v-else>
-            <div v-for="friend in friends" :key="friend.id" class="friend-checkbox">
-              <input type="checkbox" :id="`friend-${friend.id}`" v-model="selectedFriendsForInvite" :value="friend.id">
-              <label :for="`friend-${friend.id}`">{{ friend.username }}</label>
-            </div>
+          <div v-if="invitableFriends.length === 0" class="empty-state">{{ friends.length === 0 ? '暫無好友' : '所有好友已在此群組' }}</div>
+          <div v-else class="friends-invite-list">
+            <label v-for="friend in invitableFriends" :key="friend.id" class="friend-checkbox">
+              <input type="checkbox" :value="friend.id" v-model="selectedFriendsForInvite">
+              <span>{{ friend.username }}</span>
+            </label>
           </div>
         </div>
         <div class="modal-actions">
-          <button @click="sendInvites" class="btn-primary">邀請</button>
+          <button @click="sendInvites" class="btn-primary">邀請 ({{ selectedFriendsForInvite.length }})</button>
           <button @click="showInviteModal = false" class="btn-secondary">取消</button>
         </div>
       </div>
@@ -256,6 +257,7 @@ const friendRequests = ref<any[]>([])
 const newFriendEmail = ref('')
 const selectedFriendsForInvite = ref<number[]>([])
 const inviteTargetRoom = ref<any>(null)
+const roomMemberIds = ref<number[]>([])
 
 const chatStore = useChatStore()
 const filteredRooms = computed(() => {
@@ -263,6 +265,11 @@ const filteredRooms = computed(() => {
   return chatStore.rooms.filter((room: any) => 
     room.name.toLowerCase().includes(searchQuery.value.toLowerCase())
   )
+})
+
+// 可邀請的好友（排除已在房間內的成員）
+const invitableFriends = computed(() => {
+  return friends.value.filter(friend => !roomMemberIds.value.includes(friend.id))
 })
 
 
@@ -310,7 +317,9 @@ const deleteRoom = async (room: any) => {
 
 const inviteFriendsToRoom = (room: any) => {
   inviteTargetRoom.value = room
-  selectedFriendsForInvite.value = []
+  selectedFriendsForInvite.value = [] // 重置選擇
+  // 提取房間成員 ID
+  roomMemberIds.value = room.members?.map((m: any) => m.id) || []
   showInviteModal.value = true
   openMenu.value = null
 }
@@ -327,6 +336,7 @@ const sendInvites = async () => {
   if (result.success) {
     message.success(result.message || `已邀請 ${selectedFriendsForInvite.value.length} 個好友`)
     showInviteModal.value = false
+    selectedFriendsForInvite.value = [] // 關閉後重置
   } else {
     message.error(result.message || '邀请失败')
   }
@@ -722,6 +732,7 @@ onMounted(async () => {
   flex-direction: column;
   border-left: 1px solid #e8e8e8;
   border-right: 1px solid #e8e8e8;
+  overflow: hidden;
 }
 
 .welcome-screen {
@@ -1365,18 +1376,93 @@ textarea.form-input {
 .friend-checkbox {
   display: flex;
   align-items: center;
-  padding: 8px;
+  padding: 12px 14px;
   font-size: 13px;
-  margin-bottom: 8px;
+  margin-bottom: 10px;
+  background: white;
+  border: 1px solid #e8eef8;
+  border-radius: 8px;
+  transition: all 0.3s ease;
+  cursor: pointer;
 
-  input {
-    margin-right: 8px;
+  &:hover {
+    background: #f8f9fc;
+    border-color: #d5dff0;
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
+  }
+
+  input[type="checkbox"] {
+    appearance: none;
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    width: 18px;
+    height: 18px;
+    border: 2px solid #d5dff0;
+    border-radius: 4px;
     cursor: pointer;
+    transition: all 0.2s ease;
+    background: white;
+    flex-shrink: 0;
+    margin-right: 12px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    &:hover {
+      border-color: #667eea;
+      background: #f0f3ff;
+    }
+
+    &:checked {
+      background: linear-gradient(135deg, #667eea 0%, #a894c7 100%);
+      border-color: #667eea;
+      position: relative;
+
+      &::after {
+        content: '✓';
+        color: white;
+        font-size: 12px;
+        font-weight: bold;
+        position: absolute;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+      }
+    }
   }
 
   label {
     cursor: pointer;
     flex: 1;
+    color: #333;
+    font-weight: 500;
+    user-select: none;
+  }
+}
+
+.friends-invite-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  max-height: 400px;
+  overflow-y: auto;
+  padding: 4px;
+
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: #d9d9d9;
+    border-radius: 3px;
+
+    &:hover {
+      background: #999;
+    }
   }
 }
 

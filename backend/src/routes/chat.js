@@ -256,4 +256,87 @@ router.get("/rooms/:roomId/messages", verifyToken, async (req, res) => {
   }
 });
 
+// 編輯聊天室消息
+router.patch("/rooms/:roomId/messages/:messageId", verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { roomId, messageId } = req.params;
+    const { content } = req.body;
+
+    if (!content || !content.trim()) {
+      return errorResponse(res, "消息內容不能為空", 400);
+    }
+
+    // 驗證消息是否存在且屬於當前用戶
+    const message = await prisma.message.findUnique({
+      where: { id: parseInt(messageId) },
+    });
+
+    if (!message) {
+      return errorResponse(res, "消息不存在", 404);
+    }
+
+    if (message.userId !== userId) {
+      return errorResponse(res, "只能編輯自己的消息", 403);
+    }
+
+    if (message.roomId !== parseInt(roomId)) {
+      return errorResponse(res, "消息不在此聊天室", 400);
+    }
+
+    // 更新消息
+    const updatedMessage = await prisma.message.update({
+      where: { id: parseInt(messageId) },
+      data: {
+        content: content.trim(),
+      },
+      include: {
+        user: {
+          select: { id: true, username: true, avatar: true },
+        },
+      },
+    });
+
+    return successResponse(res, updatedMessage, "消息已更新", 200);
+  } catch (error) {
+    console.error("編輯消息失敗:", error);
+    return errorResponse(res, error, 500);
+  }
+});
+
+// 刪除聊天室消息
+router.delete("/rooms/:roomId/messages/:messageId", verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { roomId, messageId } = req.params;
+
+    // 驗證消息是否存在且屬於當前用戶
+    const message = await prisma.message.findUnique({
+      where: { id: parseInt(messageId) },
+    });
+
+    if (!message) {
+      return errorResponse(res, "消息不存在", 404);
+    }
+
+    if (message.userId !== userId) {
+      return errorResponse(res, "只能刪除自己的消息", 403);
+    }
+
+    if (message.roomId !== parseInt(roomId)) {
+      return errorResponse(res, "消息不在此聊天室", 400);
+    }
+
+    // 刪除消息
+    const deletedMessage = await prisma.message.delete({
+      where: { id: parseInt(messageId) },
+    });
+
+    return successResponse(res, deletedMessage, "消息已刪除", 200);
+  } catch (error) {
+    console.error("刪除消息失敗:", error);
+    return errorResponse(res, error, 500);
+  }
+});
+
 module.exports = router;

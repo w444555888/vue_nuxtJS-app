@@ -9,7 +9,7 @@ export const useSocket = () => {
 
   const socketUrl = config.public.socketUrl || 'http://localhost:3001'
 
-  // 初始化 Socket 连接
+  // 初始化 Socket 連接 
   const initSocket = () => {
     if (socket.value) return
 
@@ -25,20 +25,20 @@ export const useSocket = () => {
 
     socket.value.on('connect', () => {
       isConnected.value = true
-      console.log('✅ Socket 已连接')
+      console.log('Socket 已連接')
     })
 
     socket.value.on('disconnect', () => {
       isConnected.value = false
-      console.log('❌ Socket 已断开')
+      console.log('Socket 已斷開')
     })
 
     socket.value.on('error', (error: any) => {
-      console.error('❌ Socket 錯誤:', error)
+      console.error('Socket 錯誤:', error)
     })
   }
 
-  // 断开 Socket 连接
+  // 斷開 Socket 連接
   const disconnectSocket = () => {
     if (socket.value) {
       socket.value.disconnect()
@@ -61,28 +61,28 @@ export const useSocket = () => {
     }
   }
 
-  // 监听消息
+  // 監聽消息
   const onReceiveMessage = (callback: (data: any) => void) => {
     if (socket.value) {
       socket.value.on('receive_message', callback)
     }
   }
 
-  // 监听用户加入
+  // 監聽使用者加入
   const onUserJoined = (callback: (data: any) => void) => {
     if (socket.value) {
       socket.value.on('user_joined', callback)
     }
   }
 
-  // 监听用户离开
+  // 監聽使用者離開
   const onUserLeft = (callback: (data: any) => void) => {
     if (socket.value) {
       socket.value.on('user_left', callback)
     }
   }
 
-  // 移除监听
+  // 移除監聽
   const offReceiveMessage = () => {
     if (socket.value) {
       socket.value.off('receive_message')
