@@ -20,6 +20,9 @@ router.get("/rooms", verifyToken, async (req, res) => {
         },
       },
       include: {
+        creator: {
+          select: { id: true, username: true, avatar: true },
+        },
         _count: {
           select: { messages: true, members: true },
         },
@@ -41,6 +44,8 @@ router.get("/rooms", verifyToken, async (req, res) => {
       id: room.id,
       name: room.name,
       description: room.description,
+      creatorId: room.creatorId,
+      creator: room.creator,
       memberCount: room._count.members,
       messageCount: room._count.messages,
       members: room.members.map((m) => m.user),
@@ -70,6 +75,7 @@ router.post("/rooms", verifyToken, async (req, res) => {
       data: {
         name,
         description,
+        creatorId: userId, // 保存房主ID
         members: {
           create: {
             userId: userId, // 創建者自動加入
@@ -77,6 +83,9 @@ router.post("/rooms", verifyToken, async (req, res) => {
         },
       },
       include: {
+        creator: {
+          select: { id: true, username: true, avatar: true },
+        },
         members: {
           select: {
             user: {
@@ -98,6 +107,7 @@ router.post("/rooms", verifyToken, async (req, res) => {
 router.delete("/rooms/:roomId", verifyToken, async (req, res) => {
   try {
     const { roomId } = req.params;
+    const userId = req.user.id;
 
     // 驗證聊天室是否存在
     const room = await prisma.chatRoom.findUnique({
@@ -106,6 +116,11 @@ router.delete("/rooms/:roomId", verifyToken, async (req, res) => {
 
     if (!room) {
       return errorResponse(res, "聘天室不存在", 404);
+    }
+
+    // 檢查是否為房主
+    if (room.creatorId !== userId) {
+      return errorResponse(res, "只有房主才能刪除群組", 403);
     }
 
     // 刪除聊天室（級聯刪除相關的成員和消息）
@@ -119,6 +134,55 @@ router.delete("/rooms/:roomId", verifyToken, async (req, res) => {
     return errorResponse(res, error, 500);
   }
 });
+
+// 編輯聊天室
+router.patch("/rooms/:roomId", verifyToken, async (req, res) => {
+  try {
+    const { roomId } = req.params;
+    const userId = req.user.id;
+    const { name, description } = req.body;
+
+    // 驗證聊天室是否存在
+    const room = await prisma.chatRoom.findUnique({
+      where: { id: parseInt(roomId) },
+    });
+
+    if (!room) {
+      return errorResponse(res, "聘天室不存在", 404);
+    }
+
+    // 檢查是否為房主
+    if (room.creatorId !== userId) {
+      return errorResponse(res, "只有房主才能編輯群組", 403);
+    }
+
+    // 更新聊天室
+    const updatedRoom = await prisma.chatRoom.update({
+      where: { id: parseInt(roomId) },
+      data: {
+        ...(name && { name }),
+        ...(description !== undefined && { description }),
+      },
+      include: {
+        creator: {
+          select: { id: true, username: true, avatar: true },
+        },
+        members: {
+          select: {
+            user: {
+              select: { id: true, username: true, avatar: true },
+            },
+          },
+        },
+      },
+    });
+
+    return successResponse(res, updatedRoom, "聊天室已更新", 200);
+  } catch (error) {
+    console.error("編輯聊天室失敗:", error);
+    return errorResponse(res, error, 500);
+  }
+});;
 
 // 邀請好友加入聊天室
 router.post("/rooms/:roomId/invite", verifyToken, async (req, res) => {

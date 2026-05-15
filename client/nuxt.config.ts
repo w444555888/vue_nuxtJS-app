@@ -11,6 +11,13 @@ export default defineNuxtConfig({
     '@pinia/nuxt'
   ],
   components: true,
+  // 頁面轉場配置
+  app: {
+    pageTransition: {
+      name: 'fade',
+      mode: 'out-in'
+    }
+  },
   runtimeConfig: {
     public: {
       apiBase: process.env.API_BASE || 'http://localhost:3001',

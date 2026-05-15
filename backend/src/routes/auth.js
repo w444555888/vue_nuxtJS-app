@@ -36,6 +36,7 @@ router.post("/register", async (req, res) => {
         email,
         username,
         password: hashedPassword,
+        avatar: `https://api.dicebear.com/9.x/pixel-art-neutral/svg?scale=50&seed=${username}`,
       },
     });
 
@@ -48,7 +49,7 @@ router.post("/register", async (req, res) => {
 
     return successResponse(res, {
       token,
-      user: { id: user.id, email: user.email, username: user.username }
+      user: { id: user.id, email: user.email, username: user.username, avatar: user.avatar }
     }, "註冊成功", 201);
   } catch (error) {
     console.error("注册失败:", error);
@@ -89,7 +90,7 @@ router.post("/login", async (req, res) => {
 
     return successResponse(res, {
       token,
-      user: { id: user.id, email: user.email, username: user.username }
+      user: { id: user.id, email: user.email, username: user.username, avatar: user.avatar }
     }, "登入成功", 200);
   } catch (error) {
     console.error("登入失败:", error);
@@ -122,6 +123,34 @@ router.get("/me", verifyToken, async (req, res) => {
   } catch (error) {
     console.error("获取用户信息失败:", error);
     res.status(500).json({ error: "获取用户信息失败" });
+  }
+});
+
+// 更新用戶頭像
+router.post("/update-avatar", verifyToken, async (req, res) => {
+  const { avatar } = req.body;
+
+  if (!avatar) {
+    return errorResponse(res, "頭像 URL 不能為空", 400);
+  }
+
+  try {
+    const user = await prisma.user.update({
+      where: { id: req.user.id },
+      data: { avatar },
+      select: {
+        id: true,
+        email: true,
+        username: true,
+        avatar: true,
+        createdAt: true,
+      },
+    });
+
+    return successResponse(res, { user }, "頭像更新成功", 200);
+  } catch (error) {
+    console.error("頭像更新失敗:", error);
+    return errorResponse(res, "頭像更新失敗", 500);
   }
 });
 

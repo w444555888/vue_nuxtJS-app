@@ -50,6 +50,17 @@ export const useChatService = () => {
     }
   }
 
+  // 编辑聊天室
+  const updateRoom = async (roomId: number, data: { name?: string; description?: string }) => {
+    try {
+      const result = await patch(`/api/chat/rooms/${roomId}`, data)
+      return { success: result.success, data: result.data, message: result.message }
+    } catch (error: any) {
+      console.error('編輯聊天室失敗:', error)
+      return { success: false, error: error.message, message: error.message }
+    }
+  }
+
   // 邀请好友加入聊天室
   const inviteFriendsToRoom = async (roomId: number, friendIds: number[]) => {
     try {
@@ -129,6 +140,7 @@ export const useChatService = () => {
     fetchRooms,
     createRoom,
     deleteRoom,
+    updateRoom,
     inviteFriendsToRoom,
     fetchMessages,
     sendMessage,

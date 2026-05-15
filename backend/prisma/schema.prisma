@@ -14,6 +14,7 @@ model User {
   avatar    String?
 
   memberships       ChatRoomMember[]
+  createdRooms      ChatRoom[]       // 房主關係
   messages          Message[]
   sentFriendRequests FriendRequest[] @relation("sender")
   receivedFriendRequests FriendRequest[] @relation("receiver")
@@ -28,7 +29,9 @@ model ChatRoom {
   id          Int      @id @default(autoincrement())
   name        String
   description String?
+  creatorId   Int?     // 房主
 
+  creator     User?    @relation(fields: [creatorId], references: [id], onDelete: SetNull)
   members     ChatRoomMember[]
   messages    Message[]
 

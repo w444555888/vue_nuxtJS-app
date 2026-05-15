@@ -7,7 +7,20 @@
         <p class="chat-subtitle">{{ room.description }}</p>
       </div>
       <div class="header-right">
-        <span class="member-count"><TeamOutlined /> {{ room.memberCount }} 人</span>
+        <span class="member-count" @click="showMembersModal = true" title="點擊查看成員">
+          <div class="members-avatars">
+            <img 
+              v-for="member in (room.members?.slice(0, 5) || [])" 
+              :key="member.id"
+              :src="member.avatar || `https://api.dicebear.com/9.x/pixel-art-neutral/svg?scale=50&seed=${member.username}`"
+              :alt="member.username"
+              class="member-avatar-small"
+              :title="member.username"
+            />
+            <span v-if="(room.members?.length || 0) > 5" class="members-more">...</span>
+          </div>
+          {{ room.memberCount }} 人
+        </span>
         <button @click="$emit('invite')" class="btn-icon-small" title="邀請好友">
           +
         </button>
@@ -27,7 +40,7 @@
           @contextmenu.prevent="showContextMenu($event, msg)"
         >
           <div class="message-avatar">
-            <img :src="`https://api.dicebear.com/7.x/avataaars/svg?seed=${msg.username}`" :alt="msg.username" />
+            <img :src="msg.avatar || `https://api.dicebear.com/9.x/pixel-art-neutral/svg?scale=50&seed=${msg.username}`" :alt="msg.username" />
           </div>
           <div class="message-content">
             <div class="message-header">
@@ -47,22 +60,51 @@
     </div>
 
     <!-- 編輯消息模態框 -->
-    <div v-if="showEditModal" class="modal-overlay" @click.self="showEditModal = false">
-      <div class="modal-content">
-        <h2>編輯消息</h2>
-        <div class="modal-form">
-          <textarea 
-            v-model="editingContent"
-            placeholder="輸入新的消息內容..."
-            class="edit-textarea"
-          ></textarea>
-        </div>
-        <div class="modal-actions">
-          <button @click="submitEdit" class="btn-primary">保存</button>
-          <button @click="showEditModal = false" class="btn-secondary">取消</button>
+    <Modal 
+      :show="showEditModal" 
+      title="編輯消息"
+      @update:show="showEditModal = $event"
+    >
+      <textarea 
+        v-model="editingContent"
+        placeholder="輸入新的消息內容..."
+        class="edit-textarea"
+      ></textarea>
+      <template #actions>
+        <button @click="submitEdit" class="btn-primary">保存</button>
+        <button @click="showEditModal = false" class="btn-secondary">取消</button>
+      </template>
+    </Modal>
+
+    <!-- 成員列表模態框 -->
+    <Modal 
+      :show="showMembersModal" 
+      :title="`群組成員 (${room.members?.length || 0})`"
+      @update:show="showMembersModal = $event"
+    >
+      <div v-if="!room.members || room.members.length === 0" class="empty-state">
+        暫無成員
+      </div>
+      <div v-else class="members-list">
+        <div v-for="member in room.members" :key="member.id" :class="['member-item', { 'is-creator': member.id === room.creatorId }]">
+          <img 
+            :src="member.avatar || `https://api.dicebear.com/9.x/pixel-art-neutral/svg?scale=50&seed=${member.username}`" 
+            :alt="member.username"
+            class="member-avatar"
+          />
+          <div class="member-info">
+            <span class="member-name">{{ member.username }}</span>
+            <div v-if="member.id === room.creatorId" class="creator-badge">
+              <CrownOutlined />
+              <span>房主</span>
+            </div>
+          </div>
         </div>
       </div>
-    </div>
+      <template #actions>
+        <button @click="showMembersModal = false" class="btn-secondary">關閉</button>
+      </template>
+    </Modal>
 
     <!-- 輸入框區域 -->
     <div class="chat-input-area">
@@ -80,8 +122,10 @@
 <script setup lang="ts">
 import { ref, watch, nextTick, onMounted, onUnmounted, onUpdated } from 'vue'
 import { message } from 'ant-design-vue'
-import { TeamOutlined } from '@antdv-next/icons'
+import { TeamOutlined, CrownOutlined } from '@antdv-next/icons'
 import dayjs from 'dayjs'
+import Modal from '~/components/Modal.vue'
+import ConfirmModal from '~/components/ConfirmModal.vue'
 import { useChatService } from '~/composables/useChatService'
 import { useSocket } from '~/composables/useSocket'
 import { useAuthStore } from '~/stores/auth'
@@ -100,6 +144,17 @@ interface Room {
   name: string
   description?: string
   memberCount: number
+  creatorId?: number
+  creator?: {
+    id: number
+    username: string
+    avatar?: string
+  }
+  members?: Array<{
+    id: number
+    username: string
+    avatar?: string
+  }>
 }
 
 const props = defineProps<{
@@ -119,6 +174,7 @@ const isLoading = ref(false)
 const showEditModal = ref(false)
 const editingContent = ref('')
 const editingMessage = ref<Message | null>(null)
+const showMembersModal = ref(false)
 const contextMenu = ref({
   show: false,
   x: 0,
@@ -376,7 +432,34 @@ watch(() => props.room.id, () => {
   white-space: nowrap;
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 8px;
+  cursor: pointer;
+  transition: all 0.2s;
+  padding: 6px 10px;
+  border-radius: 6px;
+}
+
+.members-avatars {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.member-avatar-small {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  object-fit: cover;
+  border: 2px solid #e8e8e8;
+  transition: all 0.2s;
+}
+
+.members-more {
+  font-size: 12px;
+  font-weight: 600;
+  color: #999;
+  margin-left: 2px;
 }
 
 .btn-icon-small {
@@ -579,6 +662,76 @@ watch(() => props.room.id, () => {
   }
 }
 
+/* 成員列表 */
+.members-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  max-height: 60vh;
+  overflow-y: auto;
+}
+
+.member-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px;
+  border-radius: 8px;
+  transition: all 0.2s;
+  background: #fafbfc;
+
+  &:hover {
+    background: #f0f2f5;
+  }
+
+  &.is-creator {
+    background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(168, 148, 199, 0.1) 100%);
+    border: 1px solid rgba(102, 126, 234, 0.2);
+  }
+}
+
+.member-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  object-fit: cover;
+  border: 2px solid #e8e8e8;
+  transition: all 0.2s;
+}
+
+.member-info {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  flex: 1;
+  min-width: 0;
+}
+
+.member-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.creator-badge {
+  font-size: 12px;
+  color: #667eea;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  width: fit-content;
+}
+
+.creator-badge :deep(svg) {
+  width: 14px;
+  height: 14px;
+}
+
 /* 右鍵菜單 */
 .context-menu {
   position: fixed;
@@ -612,41 +765,7 @@ watch(() => props.room.id, () => {
   }
 }
 
-/* 編輯模態框 */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.5);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 999;
-}
-
-.modal-content {
-  background: white;
-  border-radius: 12px;
-  padding: 24px;
-  max-width: 500px;
-  width: 90%;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.2);
-  animation: slideUp 0.3s ease;
-
-  h2 {
-    margin: 0 0 16px 0;
-    font-size: 18px;
-    color: #333;
-    font-weight: 600;
-  }
-}
-
-.modal-form {
-  margin-bottom: 20px;
-}
-
+/* 編輯消息 */
 .edit-textarea {
   width: 100%;
   padding: 12px;
@@ -665,12 +784,6 @@ watch(() => props.room.id, () => {
     box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
     background: #fafbfc;
   }
-}
-
-.modal-actions {
-  display: flex;
-  gap: 12px;
-  justify-content: flex-end;
 }
 
 .btn-primary,
@@ -712,6 +825,62 @@ watch(() => props.room.id, () => {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+/* 成員列表 */
+.members-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-height: 400px;
+  overflow-y: auto;
+
+  &::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  &::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  &::-webkit-scrollbar-thumb {
+    background: #d9d9d9;
+    border-radius: 3px;
+
+    &:hover {
+      background: #999;
+    }
+  }
+}
+
+.member-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 12px 14px;
+  background: #f9fafb;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  transition: all 0.2s;
+
+  &:hover {
+    background: #f0f2f5;
+    border-color: #d9d9d9;
+  }
+}
+
+.member-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  object-fit: cover;
+}
+
+.member-name {
+  font-size: 14px;
+  font-weight: 500;
+  color: #333;
 }
 
 

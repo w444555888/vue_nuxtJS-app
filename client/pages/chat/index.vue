@@ -5,13 +5,13 @@
       <!-- 使用者資訊 & 體外 -->
       <div class="sidebar-header">
         <div class="user-quick-info">
-          <img :src="`https://api.dicebear.com/7.x/avataaars/svg?seed=${authStore.user?.username}`" 
+          <img :src="authStore.user?.avatar || `https://api.dicebear.com/9.x/pixel-art-neutral/svg?scale=50&seed=${authStore.user?.username}`" 
                class="user-avatar" 
                alt="avatar">
           <div class="user-name">{{ authStore.user?.username }}</div>
         </div>
         <button @click="showUserModal = true" class="btn-icon" title="編輯個人資料">
-          <i class="icon-edit">✎</i>
+          <EditOutlined />
         </button>
       </div>
 
@@ -47,7 +47,20 @@
           <!-- 房间菜单 -->
           <div v-if="openMenu?.id === room.id" class="room-menu">
             <button @click.stop="inviteFriendsToRoom(room)" class="menu-item">邀請好友</button>
-            <button @click.stop="deleteRoom(room)" class="menu-item delete">刪除群組</button>
+            <button 
+              v-if="room.creatorId === authStore.user?.id" 
+              @click.stop="editRoomModal.show = true; editRoomModal.room = room" 
+              class="menu-item"
+            >
+              編輯群組
+            </button>
+            <button 
+              v-if="room.creatorId === authStore.user?.id" 
+              @click.stop="deleteRoom(room)" 
+              class="menu-item delete"
+            >
+              刪除群組
+            </button>
           </div>
         </div>
       </div>
@@ -90,7 +103,7 @@
       <!-- 個人資料面板 -->
       <div v-if="rightPanelTab === 'profile'" class="panel-content">
         <div class="profile-info">
-          <img :src="`https://api.dicebear.com/7.x/avataaars/svg?seed=${authStore.user?.username}`" 
+          <img :src="authStore.user?.avatar || `https://api.dicebear.com/9.x/pixel-art-neutral/svg?scale=50&seed=${authStore.user?.username}`" 
                class="profile-avatar" 
                alt="avatar">
           <div class="profile-details">
@@ -109,6 +122,7 @@
           </div>
         </div>
         <div class="profile-actions">
+          <button @click="showAvatarModal = true" class="btn-secondary">更換頭像</button>
           <button @click="showUserModal = true" class="btn-secondary">編輯</button>
           <button @click="logout" class="btn-danger">登出</button>
         </div>
@@ -146,78 +160,119 @@
     </aside>
 
     <!-- 編輯個人資料模態框 -->
-    <div v-if="showUserModal" class="modal-overlay" @click.self="showUserModal = false">
-      <div class="modal-content">
-        <h2>編輯個人資料</h2>
-        <div class="modal-form">
-          <div class="form-group">
-            <label>使用者名</label>
-            <input v-model="userForm.username" type="text" class="form-input">
-          </div>
-          <div class="form-group">
-            <label>郵箱</label>
-            <input v-model="userForm.email" type="email" class="form-input">
-          </div>
-          <div class="form-group">
-            <label>新密碼（留空則不修改）</label>
-            <input v-model="userForm.newPassword" type="password" class="form-input">
-          </div>
-        </div>
-        <div class="modal-actions">
-          <button @click="saveUserProfile" class="btn-primary">儲存</button>
-          <button @click="showUserModal = false" class="btn-secondary">取消</button>
-        </div>
+    <Modal 
+      :show="showUserModal" 
+      title="編輯個人資料"
+      @update:show="showUserModal = $event"
+    >
+      <div class="form-group">
+        <label>使用者名</label>
+        <input v-model="userForm.username" type="text" class="form-input">
       </div>
-    </div>
+      <div class="form-group">
+        <label>郵箱</label>
+        <input v-model="userForm.email" type="email" class="form-input">
+      </div>
+      <div class="form-group">
+        <label>新密碼（留空則不修改）</label>
+        <input v-model="userForm.newPassword" type="password" class="form-input">
+      </div>
+      <template #actions>
+        <button @click="saveUserProfile" class="btn-primary">儲存</button>
+        <button @click="showUserModal = false" class="btn-secondary">取消</button>
+      </template>
+    </Modal>
 
     <!-- 建立新群組模態框 -->
-    <div v-if="showCreateRoomModal" class="modal-overlay" @click.self="showCreateRoomModal = false">
-      <div class="modal-content">
-        <h2>建立新群組</h2>
-        <div class="modal-form">
-          <div class="form-group">
-            <label>群組名稱</label>
-            <input v-model="roomForm.name" type="text" placeholder="輸入群組名稱" class="form-input">
-          </div>
-          <div class="form-group">
-            <label>群組描述</label>
-            <textarea v-model="roomForm.description" placeholder="輸入群組描述" class="form-input"></textarea>
-          </div>
-        </div>
-        <div class="modal-actions">
-          <button @click="createRoom" class="btn-primary">建立</button>
-          <button @click="showCreateRoomModal = false" class="btn-secondary">取消</button>
-        </div>
+    <Modal 
+      :show="showCreateRoomModal" 
+      title="建立新群組"
+      @update:show="showCreateRoomModal = $event"
+    >
+      <div class="form-group">
+        <label>群組名稱</label>
+        <input v-model="roomForm.name" type="text" placeholder="輸入群組名稱" class="form-input">
       </div>
-    </div>
+      <div class="form-group">
+        <label>群組描述</label>
+        <textarea v-model="roomForm.description" placeholder="輸入群組描述" class="form-input"></textarea>
+      </div>
+      <template #actions>
+        <button @click="createRoom" class="btn-primary">建立</button>
+        <button @click="showCreateRoomModal = false" class="btn-secondary">取消</button>
+      </template>
+    </Modal>
 
     <!-- 邀請好友模態框 -->
-    <div v-if="showInviteModal" class="modal-overlay" @click.self="showInviteModal = false">
-      <div class="modal-content">
-        <h2>邀請好友到 {{ inviteTargetRoom?.name }}</h2>
-        <p style="color: #999; font-size: 12px; margin: -12px 0 16px 0">已選擇 {{ selectedFriendsForInvite.length }} 位好友</p>
-        <div class="modal-form">
-          <div v-if="invitableFriends.length === 0" class="empty-state">{{ friends.length === 0 ? '暫無好友' : '所有好友已在此群組' }}</div>
-          <div v-else class="friends-invite-list">
-            <label v-for="friend in invitableFriends" :key="friend.id" class="friend-checkbox">
-              <input type="checkbox" :value="friend.id" v-model="selectedFriendsForInvite">
-              <span>{{ friend.username }}</span>
-            </label>
-          </div>
+    <Modal 
+      :show="showInviteModal" 
+      :title="`邀請好友到 ${inviteTargetRoom?.name}`"
+      @update:show="showInviteModal = $event"
+    >
+      <p style="color: #999; font-size: 12px; margin: -12px 0 16px 0">已選擇 {{ selectedFriendsForInvite.length }} 位好友</p>
+      <div v-if="invitableFriends.length === 0" class="empty-state">{{ friends.length === 0 ? '暫無好友' : '所有好友已在此群組' }}</div>
+      <div v-else class="friends-invite-list">
+        <label v-for="friend in invitableFriends" :key="friend.id" class="friend-checkbox">
+          <input type="checkbox" :value="friend.id" v-model="selectedFriendsForInvite">
+          <span>{{ friend.username }}</span>
+        </label>
+      </div>
+      <template #actions>
+        <button @click="sendInvites" class="btn-primary">邀請 ({{ selectedFriendsForInvite.length }})</button>
+        <button @click="showInviteModal = false" class="btn-secondary">取消</button>
+      </template>
+    </Modal>
+
+    <!-- 編輯群組模態框 -->
+    <Modal 
+      :show="editRoomModal.show" 
+      title="編輯群組"
+      @update:show="editRoomModal.show = $event"
+    >
+      <div v-if="editRoomModal.room" class="edit-room-form">
+        <div class="form-group">
+          <label>群組名稱</label>
+          <input v-model="editRoomModal.room.name" type="text" class="form-input">
         </div>
-        <div class="modal-actions">
-          <button @click="sendInvites" class="btn-primary">邀請 ({{ selectedFriendsForInvite.length }})</button>
-          <button @click="showInviteModal = false" class="btn-secondary">取消</button>
+        <div class="form-group">
+          <label>群組描述</label>
+          <textarea v-model="editRoomModal.room.description" class="form-input"></textarea>
         </div>
       </div>
-    </div>
+      <template #actions>
+        <button @click="saveRoomEdit" class="btn-primary">儲存</button>
+        <button @click="editRoomModal.show = false" class="btn-secondary">取消</button>
+      </template>
+    </Modal>
+
+    <!-- 確認對話框 -->
+    <ConfirmModal 
+      :show="showConfirmModal"
+      :title="confirmTitle"
+      :message="confirmMessage"
+      type="danger"
+      @confirm="confirmAction"
+      @cancel="showConfirmModal = false"
+    />
+
+    <!-- 頭像選擇模態框 -->
+    <AvatarPickerModal 
+      :show="showAvatarModal" 
+      :current-username="authStore.user?.username || ''"
+      @update:show="showAvatarModal = $event"
+      @avatar-updated="() => {}"
+    />
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
+import { EditOutlined } from '@antdv-next/icons'
 import ChatRoom from '~/components/ChatRoom.vue'
+import Modal from '~/components/Modal.vue'
+import ConfirmModal from '~/components/ConfirmModal.vue'
+import AvatarPickerModal from '~/components/AvatarPickerModal.vue'
 
 definePageMeta({
   layout: 'chat',
@@ -236,8 +291,17 @@ const searchQuery = ref('')
 const rightPanelTab = ref<'profile' | 'friends'>('profile')
 const openMenu = ref<any>(null)
 const showUserModal = ref(false)
+const showAvatarModal = ref(false)
 const showCreateRoomModal = ref(false)
 const showInviteModal = ref(false)
+const showConfirmModal = ref(false)
+const editRoomModal = ref({
+  show: false,
+  room: null as any
+})
+const confirmAction = ref<() => Promise<void> | void>(() => {})
+const confirmTitle = ref('')
+const confirmMessage = ref('')
 
 // 表單資料
 const userForm = ref({
@@ -301,17 +365,46 @@ const createRoom = async () => {
   }
 }
 
-const deleteRoom = async (room: any) => {
-  if (confirm(`確定要刪除群組 "${room.name}" 嗎？`)) {
+const deleteRoom = (room: any) => {
+  confirmTitle.value = '刪除群組'
+  confirmMessage.value = `確定要刪除群組 "${room.name}" 嗎？`
+  confirmAction.value = async () => {
     const result = await chatService.deleteRoom(room.id)
     if (result.success) {
       message.success(result.message || '群組已刪除')
-      // 譄新聖天室列表
+      // 刷新聊天室列表
       await chatService.fetchRooms()
     } else {
       message.error(result.message || '删除失败')
     }
     openMenu.value = null
+    showConfirmModal.value = false
+  }
+  showConfirmModal.value = true
+}
+
+const saveRoomEdit = async () => {
+  if (!editRoomModal.value.room?.name?.trim()) {
+    message.error('群組名稱不能為空')
+    return
+  }
+  
+  const result = await chatService.updateRoom(
+    editRoomModal.value.room.id,
+    {
+      name: editRoomModal.value.room.name,
+      description: editRoomModal.value.room.description
+    }
+  )
+  
+  if (result.success) {
+    message.success('群組已更新')
+    editRoomModal.value.show = false
+    editRoomModal.value.room = null
+    // 刷新聊天室列表
+    await chatService.fetchRooms()
+  } else {
+    message.error(result.message || '更新失敗')
   }
 }
 
@@ -395,8 +488,10 @@ const rejectFriend = async (request: any) => {
   }
 }
 
-const removeFriend = async (friend: any) => {
-  if (confirm(`確定要刪除好友 "${friend.username}" 嗎？`)) {
+const removeFriend = (friend: any) => {
+  confirmTitle.value = '刪除好友'
+  confirmMessage.value = `確定要刪除好友 "${friend.username}" 嗎？`
+  confirmAction.value = async () => {
     const result = await friendService.removeFriend(friend.id)
     if (result.success) {
       message.success(result.message || '已刪除好友')
@@ -405,7 +500,9 @@ const removeFriend = async (friend: any) => {
     } else {
       message.error(result.message || '删除失败')
     }
+    showConfirmModal.value = false
   }
+  showConfirmModal.value = true
 }
 
 const logout = async () => {
@@ -472,7 +569,7 @@ onMounted(async () => {
   }
 }
 
-/* 左侧边栏 */
+/* 左侧 */
 .sidebar {
   background: white;
   border-right: 1px solid #e8e8e8;
@@ -1078,9 +1175,10 @@ onMounted(async () => {
 .profile-info {
   text-align: center;
   margin-bottom: 24px;
-  padding: 20px;
-  background: #fafbfc;
-  border-radius: 8px;
+  padding: 16px;
+  background: linear-gradient(135deg, #f5f7fa 0%, #fafbfc 100%);
+  border: 1px solid #eef2f8;
+  border-radius: 10px;
 }
 
 .profile-avatar {
@@ -1305,42 +1403,7 @@ onMounted(async () => {
   margin: 0;
 }
 
-/* 模态框 */
-.modal-overlay {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background: rgba(0, 0, 0, 0.4);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  z-index: 1000;
-}
-
-.modal-content {
-  background: white;
-  border-radius: 12px;
-  padding: 24px;
-  width: 90%;
-  max-width: 400px;
-  max-height: 80vh;
-  overflow-y: auto;
-  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
-
-  h2 {
-    margin: 0 0 20px 0;
-    font-size: 18px;
-    color: #333;
-    font-weight: 600;
-  }
-}
-
-.modal-form {
-  margin-bottom: 20px;
-}
-
+/* 模態框 - 表單相關樣式 */
 .form-group {
   margin-bottom: 16px;
 
@@ -1466,12 +1529,6 @@ textarea.form-input {
   }
 }
 
-.modal-actions {
-  display: flex;
-  gap: 12px;
-  justify-content: flex-end;
-}
-
 .btn-primary,
 .btn-secondary,
 .btn-danger {
@@ -1482,8 +1539,6 @@ textarea.form-input {
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
-  margin-right: 8px;
-  margin-bottom: 8px;
 }
 
 .btn-primary {

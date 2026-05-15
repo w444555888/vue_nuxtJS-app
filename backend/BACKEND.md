@@ -110,3 +110,74 @@ npm start
 WebSocket: ws://localhost:3001
 ```
 
+---
+
+## Prisma 數據模型更新流程
+
+### 修改模型後需要執行的步驟
+
+**每次修改 `schema.prisma` 文件後，按順序執行：**
+
+#### 1️⃣ **執行遷移（必需）**
+```bash
+cd backend
+npx prisma migrate dev --name <描述名稱>
+```
+
+**示例：**
+```bash
+npx prisma migrate dev --name add_creator_to_chatroom
+npx prisma migrate dev --name add_room_status
+```
+
+**此命令會：**
+- 生成遷移文件（SQL）
+- 執行 SQL 更新數據庫
+- 自動重新生成 Prisma Client
+
+#### 2️⃣ **重新生成 Client（通常自動）**
+如果遷移沒有自動生成，手動執行：
+```bash
+npx prisma generate
+```
+
+#### 3️⃣ **重啓後端服務器**
+```bash
+# 停止當前進程（Ctrl + C）
+# 重新啓動
+npm run dev
+```
+
+### 完整流程速記
+
+```bash
+# 1. 修改 schema.prisma
+# 2. 執行遷移
+cd backend
+npx prisma migrate dev --name <描述>
+
+# 3. 重啓後端
+npm run dev
+```
+
+### 生産環境部署
+
+```bash
+# 生產環境：只部署已有的遷移（不建立新遷移）
+npx prisma migrate deploy
+```
+
+### 常見問題
+
+**問題：更新 schema 後 API 返回 "Unknown field" 錯誤**
+- 原因：Prisma Client 未重新生成
+- 解決：執行 `npx prisma generate` 或重啓服務器
+
+**問題：遷移失敗，存在數據無法轉換**
+- 解決：編輯遷移文件手動修改 SQL，或使用 `--create-only` 創建遷移文件後再手動修改
+
+```bash
+npx prisma migrate dev --create-only --name fix_issue
+```
+
+---

@@ -57,7 +57,7 @@ const isOwnMessage = (message: any) => {
 // 获取默认头像
 const getDefaultAvatar = (username: string) => {
   const initial = username?.charAt(0).toUpperCase() || '?'
-  return `https://api.dicebear.com/7.x/avataaars/svg?seed=${username}`
+  return `https://api.dicebear.com/9.x/pixel-art-neutral/svg?scale=50&seed=${username}`
 }
 
 // 検查是否需要顯示時間
