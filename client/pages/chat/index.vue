@@ -163,7 +163,7 @@
     <Modal 
       :show="showUserModal" 
       title="編輯個人資料"
-      @update:show="showUserModal = $event"
+      @update:show="(value) => showUserModal = value"
     >
       <div class="form-group">
         <label>使用者名</label>
@@ -187,7 +187,7 @@
     <Modal 
       :show="showCreateRoomModal" 
       title="建立新群組"
-      @update:show="showCreateRoomModal = $event"
+      @update:show="(value) => showCreateRoomModal = value"
     >
       <div class="form-group">
         <label>群組名稱</label>
@@ -207,7 +207,7 @@
     <Modal 
       :show="showInviteModal" 
       :title="`邀請好友到 ${inviteTargetRoom?.name}`"
-      @update:show="showInviteModal = $event"
+      @update:show="(value) => showInviteModal = value"
     >
       <p style="color: #999; font-size: 12px; margin: -12px 0 16px 0">已選擇 {{ selectedFriendsForInvite.length }} 位好友</p>
       <div v-if="invitableFriends.length === 0" class="empty-state">{{ friends.length === 0 ? '暫無好友' : '所有好友已在此群組' }}</div>
@@ -227,7 +227,7 @@
     <Modal 
       :show="editRoomModal.show" 
       title="編輯群組"
-      @update:show="editRoomModal.show = $event"
+      @update:show="(value) => editRoomModal.show = value"
     >
       <div v-if="editRoomModal.room" class="edit-room-form">
         <div class="form-group">
@@ -259,7 +259,7 @@
     <AvatarPickerModal 
       :show="showAvatarModal" 
       :current-username="authStore.user?.username || ''"
-      @update:show="showAvatarModal = $event"
+      @update:show="(value) => showAvatarModal = value"
       @avatar-updated="() => {}"
     />
   </div>

@@ -1,5 +1,5 @@
 <template>
-  <div v-if="show" class="modal-overlay" @click.self="$emit('update:show', false)">
+  <div v-if="show" class="modal-overlay" @click.self="emit('update:show', false)">
     <div class="modal-content">
       <h2>{{ title }}</h2>
       <div class="modal-form">

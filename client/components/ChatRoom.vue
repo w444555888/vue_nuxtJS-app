@@ -21,7 +21,7 @@
           </div>
           {{ room.memberCount }} 人
         </span>
-        <button @click="$emit('invite')" class="btn-icon-small" title="邀請好友">
+        <button @click="emit('invite')" class="btn-icon-small" title="邀請好友">
           +
         </button>
       </div>
@@ -63,7 +63,7 @@
     <Modal 
       :show="showEditModal" 
       title="編輯消息"
-      @update:show="showEditModal = $event"
+      @update:show="(value) => showEditModal = value"
     >
       <textarea 
         v-model="editingContent"
@@ -80,7 +80,7 @@
     <Modal 
       :show="showMembersModal" 
       :title="`群組成員 (${room.members?.length || 0})`"
-      @update:show="showMembersModal = $event"
+      @update:show="(value) => showMembersModal = value"
     >
       <div v-if="!room.members || room.members.length === 0" class="empty-state">
         暫無成員

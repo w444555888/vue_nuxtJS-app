@@ -2,10 +2,9 @@
   <Modal 
     :show="show" 
     title="選擇頭像"
-    @update:show="$emit('update:show', $event)"
+    @update:show="(value) => emit('update:show', value)"
   >
     <div class="avatar-picker">
-      <!-- 頭像風格選擇 -->
       <div class="style-selector">
         <label>選擇頭像風格：</label>
         <div class="style-buttons">
@@ -60,7 +59,7 @@
 
     <template #actions>
       <button @click="saveAvatar" class="btn-primary">保存</button>
-      <button @click="$emit('update:show', false)" class="btn-secondary">取消</button>
+      <button @click="emit('update:show', false)" class="btn-secondary">取消</button>
     </template>
   </Modal>
 </template>
@@ -117,8 +116,6 @@ const saveAvatar = async () => {
   try {
     const seed = customSeed.value.trim() || props.currentUsername
     const avatarUrl = `https://api.dicebear.com/9.x/${selectedStyle.value}/svg?scale=50&seed=${encodeURIComponent(seed)}`
-    
-    // 調用後端 API 更新頭像
     const result = await post('/api/auth/update-avatar', {
       avatar: avatarUrl
     })
