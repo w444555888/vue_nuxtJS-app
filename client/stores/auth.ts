@@ -35,6 +35,12 @@ export const useAuthStore = defineStore('auth', () => {
     setToStorage('auth_user', JSON.stringify(newUser))
   }
 
+  // 只更新使用者資料（例如更新頭像/名稱），並同步到本地存儲
+  const setUser = (newUser: any) => {
+    user.value = newUser
+    setToStorage('auth_user', JSON.stringify(newUser))
+  }
+
   // 清除認證
   const clearAuth = () => {
     user.value = null
@@ -56,6 +62,7 @@ export const useAuthStore = defineStore('auth', () => {
     isLoading,
     initAuth,
     setAuth,
+    setUser,
     clearAuth,
     setLoading
   }

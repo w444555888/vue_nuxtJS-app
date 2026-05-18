@@ -28,12 +28,12 @@ export const useProfileService = () => {
       
       // 更新本地存儲的用戶信息
       if (result.success && result.data) {
-        authStore.user = result.data
+        authStore.setUser(result.data)
       }
 
       return { success: result.success, data: result.data, message: result.message }
     } catch (error: any) {
-      console.error('❌ 更新個人資料失敗:', error)
+      console.error('更新個人資料失敗:', error)
       return { success: false, error: error.message, message: error.message }
     }
   }

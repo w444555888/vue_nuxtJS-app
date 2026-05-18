@@ -3,6 +3,10 @@ export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
   devtools: { enabled: true },
   ssr: true,
+  routeRules: {
+    '/chat': { ssr: false },
+    '/chat/**': { ssr: false }
+  },
   css: ['~/assets/styles/global.css'],
   modules: [
     '@nuxt/image',
