@@ -260,7 +260,7 @@
       :show="showAvatarModal" 
       :current-username="authStore.user?.username || ''"
       @update:show="(value) => showAvatarModal = value"
-      @avatar-updated="() => {}"
+      @avatar-updated="handleAvatarUpdated"
     />
   </div>
 </template>
@@ -529,6 +529,17 @@ const loadPendingRequests = async () => {
       avatar: req.sender.avatar
     }))
   }
+}
+
+const handleAvatarUpdated = async () => {
+  showAvatarModal.value = false
+  // 重新加載聊天室列表以更新頭像信息
+  const rooms = await chatService.fetchRooms()
+  if (rooms.success && rooms.data?.length > 0) {
+    selectedRoom.value = rooms.data[0]
+    chatStore.setCurrentRoom(rooms.data[0])
+  }
+  message.success('聊天室頭像已同步更新')
 }
 
 // 生命周期

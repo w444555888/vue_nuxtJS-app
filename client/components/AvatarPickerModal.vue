@@ -1,27 +1,13 @@
 <template>
   <Modal 
     :show="show" 
-    title="選擇頭像"
+    title="自訂頭像 - Pixel Art"
     @update:show="(value) => emit('update:show', value)"
   >
     <div class="avatar-picker">
-      <div class="style-selector">
-        <label>選擇頭像風格：</label>
-        <div class="style-buttons">
-          <button 
-            v-for="style in avatarStyles" 
-            :key="style.value"
-            :class="['style-btn', { active: selectedStyle === style.value }]"
-            @click="selectedStyle = style.value"
-          >
-            {{ style.label }}
-          </button>
-        </div>
-      </div>
-
       <!-- 自訂名字輸入 -->
       <div class="seed-input">
-        <label>自訂名字（留空使用用戶名）：</label>
+        <label>基礎名字（生成基礎）：</label>
         <input 
           v-model="customSeed"
           type="text" 
@@ -29,31 +15,179 @@
         />
       </div>
 
-      <!-- 預覽 -->
-      <div class="preview-section">
-        <div class="preview-box">
-          <img :src="previewUrl" :alt="previewUrl" />
+      <!-- 自訂選項 -->
+      <div class="customization-options">
+        <!-- 眼睛 -->
+        <div class="option-group">
+          <label>眼睛：</label>
+          <div class="option-buttons">
+            <button 
+              v-for="eye in eyesVariants" 
+              :key="eye"
+              :class="['option-btn', { active: customOptions.eyes === eye }]"
+              @click="customOptions.eyes = eye"
+            >
+              {{ eye }}
+            </button>
+          </div>
         </div>
-        <div class="preview-info">
-          <p><strong>預覽：</strong></p>
-          <p class="preview-url">{{ previewUrl }}</p>
+
+        <!-- 眼睛顏色 -->
+        <div class="option-group">
+          <label>眼睛顏色：</label>
+          <div class="color-picker">
+            <input 
+              v-model="customOptions.eyesColor"
+              type="color"
+              class="color-input"
+            />
+            <span class="color-value">#{{ customOptions.eyesColor.substring(1).toUpperCase() }}</span>
+          </div>
+        </div>
+
+        <!-- 嘴巴 -->
+        <div class="option-group">
+          <label>嘴巴：</label>
+          <div class="option-buttons">
+            <button 
+              v-for="mouth in mouthVariants" 
+              :key="mouth"
+              :class="['option-btn', { active: customOptions.mouth === mouth }]"
+              @click="customOptions.mouth = mouth"
+            >
+              {{ mouth }}
+            </button>
+          </div>
+        </div>
+
+        <!-- 嘴巴顏色 -->
+        <div class="option-group">
+          <label>嘴巴顏色：</label>
+          <div class="color-picker">
+            <input 
+              v-model="customOptions.mouthColor"
+              type="color"
+              class="color-input"
+            />
+            <span class="color-value">#{{ customOptions.mouthColor.substring(1).toUpperCase() }}</span>
+          </div>
+        </div>
+
+        <!-- 眼鏡 -->
+        <div class="option-group">
+          <label>
+            <input 
+              v-model="customOptions.showGlasses"
+              type="checkbox"
+              class="checkbox-input"
+            />
+            顯示眼鏡
+          </label>
+        </div>
+
+        <!-- 眼鏡類型 -->
+        <div class="option-group" v-if="customOptions.showGlasses">
+          <label>眼鏡類型：</label>
+          <div class="option-buttons">
+            <button 
+              v-for="glass in glassesVariants" 
+              :key="glass"
+              :class="['option-btn', { active: customOptions.glasses === glass }]"
+              @click="customOptions.glasses = glass"
+            >
+              {{ glass }}
+            </button>
+          </div>
+        </div>
+
+        <!-- 眼鏡顏色 -->
+        <div class="option-group">
+          <label>眼鏡顏色：</label>
+          <div class="color-picker">
+            <input 
+              v-model="customOptions.glassesColor"
+              type="color"
+              class="color-input"
+            />
+            <span class="color-value">#{{ customOptions.glassesColor.substring(1).toUpperCase() }}</span>
+          </div>
+        </div>
+
+        <!-- 翻轉 -->
+        <div class="option-group">
+          <label>
+            <input 
+              v-model="customOptions.flip"
+              type="checkbox"
+              class="checkbox-input"
+            />
+            翻轉頭像
+          </label>
+        </div>
+
+        <!-- 背景顏色 -->
+        <div class="option-group">
+          <label>背景顏色：</label>
+          <div class="color-picker">
+            <input 
+              v-model="customOptions.backgroundColor"
+              type="color"
+              class="color-input"
+            />
+            <span class="color-value">#{{ customOptions.backgroundColor.substring(1).toUpperCase() }}</span>
+          </div>
+        </div>
+
+        <!-- 背景類型 -->
+        <div class="option-group">
+          <label>背景類型：</label>
+          <div class="option-buttons">
+            <button 
+              v-for="type in backgroundTypes" 
+              :key="type"
+              :class="['option-btn', { active: customOptions.backgroundType === type }]"
+              @click="customOptions.backgroundType = type as 'solid' | 'gradientLinear'"
+            >
+              {{ type === 'solid' ? '純色' : '漸變' }}
+            </button>
+          </div>
+        </div>
+
+        <!-- 漸變第二顏色 -->
+        <div class="option-group" v-if="customOptions.backgroundType === 'gradientLinear'">
+          <label>漸變第二顏色：</label>
+          <div class="color-picker">
+            <input 
+              v-model="customOptions.backgroundColorSecond"
+              type="color"
+              class="color-input"
+            />
+            <span class="color-value">#{{ customOptions.backgroundColorSecond.substring(1).toUpperCase() }}</span>
+          </div>
+        </div>
+
+        <!-- 漸變旋轉 -->
+        <div class="option-group" v-if="customOptions.backgroundType === 'gradientLinear'">
+          <label>漸變旋轉（0-360）：</label>
+          <div class="slider-container">
+            <input 
+              v-model.number="customOptions.backgroundRotation"
+              type="range"
+              min="0"
+              max="360"
+              class="slider"
+            />
+            <span class="slider-value">{{ customOptions.backgroundRotation }}°</span>
+          </div>
         </div>
       </div>
 
-      <!-- 預設選項 -->
-      <div class="presets">
-        <label>快速選擇：</label>
-        <div class="preset-grid">
-          <div 
-            v-for="(preset, idx) in presetSeeds" 
-            :key="idx"
-            class="preset-item"
-            @click="selectPreset(preset)"
-          >
-            <img :src="`https://api.dicebear.com/9.x/${selectedStyle}/svg?scale=50&seed=${preset}`" :alt="preset" />
-            <span>{{ preset }}</span>
-          </div>
+      <!-- 預覽 -->
+      <div class="preview-section">
+        <div class="preview-box">
+          <img :src="previewUrl" :alt="previewUrl" class="preview-img" />
         </div>
+        <button @click="randomizeAll" class="btn-randomize">🎲 隨機</button>
       </div>
     </div>
 
@@ -89,29 +223,95 @@ const emit = defineEmits<{
 const authStore = useAuthStore()
 const { post } = useHttpClient()
 
-const avatarStyles = [
-  { label: 'Pixel Art Neutral', value: 'pixel-art-neutral' },
-  { label: 'Fun Emoji', value: 'fun-emoji' },
-]
+// Pixel Art Neutral 的選項
+const eyesVariants = ['variant01', 'variant02', 'variant03', 'variant04', 'variant05', 'variant06', 'variant07', 'variant08', 'variant09', 'variant10', 'variant11', 'variant12']
+const mouthVariants = ['happy01', 'happy02', 'happy03', 'happy04', 'happy05', 'happy06', 'happy07', 'happy08', 'happy09', 'happy10', 'happy11', 'happy12', 'happy13', 'sad01', 'sad02', 'sad03', 'sad04', 'sad05', 'sad06', 'sad07', 'sad08', 'sad09', 'sad10']
+const glassesVariants = ['dark01', 'dark02', 'dark03', 'dark04', 'dark05', 'dark06', 'dark07', 'light01', 'light02', 'light03', 'light04', 'light05', 'light06', 'light07']
+const backgroundTypes = ['solid', 'gradientLinear']
 
-const presetSeeds = ['Alice', 'Bob', 'Charlie', 'Diana', 'Eve', 'Frank', 'Grace', 'Henry']
-
-const selectedStyle = ref('pixel-art-neutral')
 const customSeed = ref('')
+
+interface CustomOptions {
+  eyes: string
+  eyesColor: string
+  mouth: string
+  mouthColor: string
+  glasses: string
+  glassesColor: string
+  showGlasses: boolean
+  flip: boolean
+  backgroundColor: string
+  backgroundColorSecond: string
+  backgroundType: 'solid' | 'gradientLinear'
+  backgroundRotation: number
+}
+
+const customOptions = ref<CustomOptions>({
+  eyes: 'variant01',
+  eyesColor: '#5b7c8b',
+  mouth: 'happy01',
+  mouthColor: '#c98276',
+  glasses: 'dark01',
+  glassesColor: '#4b4b4b',
+  showGlasses: false,
+  flip: false,
+  backgroundColor: '#b6e3f4',
+  backgroundColorSecond: '#c0aede',
+  backgroundType: 'solid',
+  backgroundRotation: 0
+})
 
 const previewUrl = computed(() => {
   const seed = customSeed.value.trim() || props.currentUsername
-  return `https://api.dicebear.com/9.x/${selectedStyle.value}/svg?scale=50&seed=${encodeURIComponent(seed)}`
+  const params = new URLSearchParams()
+  params.append('seed', seed)
+  params.append('eyes', customOptions.value.eyes)
+  params.append('eyesColor', customOptions.value.eyesColor.substring(1))
+  params.append('eyesProbability', '100')
+  params.append('mouth', customOptions.value.mouth)
+  params.append('mouthColor', customOptions.value.mouthColor.substring(1))
+  params.append('mouthProbability', '100')
+  params.append('flip', String(customOptions.value.flip))
+  
+  if (customOptions.value.backgroundType === 'gradientLinear') {
+    params.append('backgroundColor', customOptions.value.backgroundColor.substring(1) + ',' + customOptions.value.backgroundColorSecond.substring(1))
+    params.append('backgroundRotation', String(customOptions.value.backgroundRotation))
+  } else {
+    params.append('backgroundColor', customOptions.value.backgroundColor.substring(1))
+  }
+  
+  params.append('backgroundType', customOptions.value.backgroundType)
+  params.append('scale', '50')
+  
+  if (customOptions.value.showGlasses) {
+    params.append('glasses', customOptions.value.glasses)
+    params.append('glassesColor', customOptions.value.glassesColor.substring(1))
+    params.append('glassesProbability', '100')
+  } else {
+    params.append('glassesProbability', '0')
+  }
+
+  return `https://api.dicebear.com/9.x/pixel-art-neutral/svg?${params.toString()}`
 })
 
-const selectPreset = (preset: string) => {
-  customSeed.value = preset
+const randomizeAll = () => {
+  customOptions.value.eyes = eyesVariants[Math.floor(Math.random() * eyesVariants.length)] as string
+  customOptions.value.mouth = mouthVariants[Math.floor(Math.random() * mouthVariants.length)] as string
+  customOptions.value.flip = Math.random() > 0.5
+  customOptions.value.showGlasses = Math.random() > 0.4
+  customOptions.value.backgroundType = Math.random() > 0.5 ? 'solid' : 'gradientLinear'
+  if (customOptions.value.backgroundType === 'gradientLinear') {
+    customOptions.value.backgroundRotation = Math.floor(Math.random() * 360)
+  }
+  if (customOptions.value.showGlasses) {
+    customOptions.value.glasses = glassesVariants[Math.floor(Math.random() * glassesVariants.length)] as string
+  }
+  customSeed.value = `avatar${Math.random().toString(36).substring(2, 9)}`
 }
 
 const saveAvatar = async () => {
   try {
-    const seed = customSeed.value.trim() || props.currentUsername
-    const avatarUrl = `https://api.dicebear.com/9.x/${selectedStyle.value}/svg?scale=50&seed=${encodeURIComponent(seed)}`
+    const avatarUrl = previewUrl.value
     const result = await post('/api/auth/update-avatar', {
       avatar: avatarUrl
     })
@@ -138,8 +338,21 @@ const saveAvatar = async () => {
 // 當 show 變化時重置表單
 watch(() => props.show, (newVal) => {
   if (newVal) {
-    selectedStyle.value = 'pixel-art-neutral'
     customSeed.value = ''
+    customOptions.value = {
+      eyes: 'variant01',
+      eyesColor: '#5b7c8b',
+      mouth: 'happy01',
+      mouthColor: '#c98276',
+      glasses: 'dark01',
+      glassesColor: '#4b4b4b',
+      showGlasses: false,
+      flip: false,
+      backgroundColor: '#b6e3f4',
+      backgroundColorSecond: '#c0aede',
+      backgroundType: 'solid',
+      backgroundRotation: 0
+    }
   }
 })
 </script>
@@ -148,52 +361,10 @@ watch(() => props.show, (newVal) => {
 .avatar-picker {
   display: flex;
   flex-direction: column;
-  gap: 24px;
+  gap: 20px;
 }
 
-/* 風格選擇 */
-.style-selector {
-  display: flex;
-  flex-direction: column;
-  gap: 12px;
-
-  label {
-    font-size: 14px;
-    font-weight: 600;
-    color: #333;
-  }
-}
-
-.style-buttons {
-  display: grid;
-  grid-template-columns: repeat(2, 1fr);
-  gap: 10px;
-}
-
-.style-btn {
-  padding: 10px 12px;
-  border: 2px solid #e8e8e8;
-  background: white;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
-  color: #666;
-  transition: all 0.2s;
-
-  &:hover {
-    border-color: #667eea;
-    color: #667eea;
-  }
-
-  &.active {
-    background: linear-gradient(135deg, #667eea 0%, #a894c7 100%);
-    color: white;
-    border-color: transparent;
-  }
-}
-
-/* 自訂種子 */
+/* 自訂名字 */
 .seed-input {
   display: flex;
   flex-direction: column;
@@ -226,51 +397,186 @@ watch(() => props.show, (newVal) => {
   }
 }
 
+/* 自訂選項 */
+.customization-options {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 16px;
+  background: #f9fafb;
+  border-radius: 8px;
+  border: 1px solid #e8e8e8;
+}
+
+.option-group {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+
+  label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #333;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .checkbox-input {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+  }
+}
+
+.option-buttons {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(70px, 1fr));
+  gap: 8px;
+}
+
+.option-btn {
+  padding: 8px 10px;
+  border: 1px solid #d9d9d9;
+  background: white;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 12px;
+  font-weight: 500;
+  color: #666;
+  transition: all 0.2s;
+
+  &:hover {
+    border-color: #667eea;
+    color: #667eea;
+  }
+
+  &.active {
+    background: linear-gradient(135deg, #667eea 0%, #a894c7 100%);
+    color: white;
+    border-color: transparent;
+  }
+}
+
+.color-picker {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.color-input {
+  width: 50px;
+  height: 40px;
+  border: 1px solid #d9d9d9;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.color-value {
+  font-size: 12px;
+  color: #666;
+  font-family: 'Courier New', monospace;
+}
+
+.slider-container {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.slider {
+  flex: 1;
+  height: 6px;
+  border-radius: 3px;
+  background: linear-gradient(to right, #d9d9d9 0%, #667eea 100%);
+  outline: none;
+  -webkit-appearance: none;
+  appearance: none;
+
+  &::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: white;
+    border: 2px solid #667eea;
+    cursor: pointer;
+    transition: all 0.2s;
+
+    &:hover {
+      transform: scale(1.2);
+      box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+    }
+  }
+
+  &::-moz-range-thumb {
+    width: 18px;
+    height: 18px;
+    border-radius: 50%;
+    background: white;
+    border: 2px solid #667eea;
+    cursor: pointer;
+    transition: all 0.2s;
+
+    &:hover {
+      transform: scale(1.2);
+      box-shadow: 0 2px 8px rgba(102, 126, 234, 0.3);
+    }
+  }
+}
+
+.slider-value {
+  min-width: 40px;
+  font-size: 12px;
+  color: #666;
+  font-weight: 500;
+}
+
 /* 預覽 */
 .preview-section {
   display: flex;
+  align-items: center;
+  justify-content: center;
   gap: 16px;
-  padding: 16px;
-  background: #fafbfc;
+  padding: 20px;
+  background: linear-gradient(135deg, #f5f7fa 0%, #c3cfe2 100%);
   border-radius: 8px;
-  border: 1px solid #e8e8e8;
+  border: 2px dashed #667eea;
 }
 
 .preview-box {
   flex-shrink: 0;
 
-  img {
-    width: 100px;
-    height: 100px;
+  .preview-img {
+    width: 120px;
+    height: 120px;
     border-radius: 50%;
     background: white;
-    border: 2px solid #e8e8e8;
+    border: 3px solid white;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
   }
 }
 
-.preview-info {
-  flex: 1;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  min-width: 0;
+.btn-randomize {
+  padding: 10px 16px;
+  border: none;
+  background: linear-gradient(135deg, #667eea 0%, #a894c7 100%);
+  color: white;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
 
-  p {
-    margin: 0;
-    font-size: 13px;
-    color: #666;
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
   }
 
-  strong {
-    color: #333;
+  &:active {
+    transform: translateY(0);
   }
-}
-
-.preview-url {
-  word-break: break-all;
-  font-size: 12px;
-  color: #666;
-  margin: 0;
 }
 
 /* 預設選項 */
@@ -283,48 +589,6 @@ watch(() => props.show, (newVal) => {
     font-size: 14px;
     font-weight: 600;
     color: #333;
-  }
-}
-
-.preset-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr);
-  gap: 12px;
-}
-
-.preset-item {
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 8px;
-  padding: 12px;
-  border: 2px solid #e8e8e8;
-  border-radius: 8px;
-  cursor: pointer;
-  transition: all 0.2s;
-  background: white;
-
-  &:hover {
-    border-color: #667eea;
-    background: #fafbfc;
-  }
-
-  img {
-    width: 48px;
-    height: 48px;
-    border-radius: 50%;
-    object-fit: cover;
-  }
-
-  span {
-    font-size: 12px;
-    color: #666;
-    font-weight: 500;
-    text-align: center;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    width: 100%;
   }
 }
 
@@ -350,31 +614,23 @@ watch(() => props.show, (newVal) => {
 }
 
 .btn-secondary {
-  background: #f0f0f0;
-  color: #666;
+  background: #e8e8e8;
+  color: #333;
 
   &:hover {
-    background: #e8e8e8;
+    background: #d9d9d9;
   }
 }
 
-@media (max-width: 600px) {
-  .style-buttons {
-    grid-template-columns: 1fr;
-  }
-
-  .preset-grid {
-    grid-template-columns: repeat(3, 1fr);
+@media (max-width: 768px) {
+  .option-buttons {
+    grid-template-columns: repeat(auto-fill, minmax(60px, 1fr));
   }
 
   .preview-section {
     flex-direction: column;
-    align-items: center;
-
-    .preview-box img {
-      width: 120px;
-      height: 120px;
-    }
   }
 }
 </style>
+
+
