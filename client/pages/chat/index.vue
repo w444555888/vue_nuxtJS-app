@@ -157,6 +157,8 @@
           <button @click="addFriendByEmail" class="btn-primary">新增好友</button>
         </div>
       </div>
+
+
     </aside>
 
     <!-- 編輯個人資料模態框 -->
@@ -262,17 +264,37 @@
       @update:show="(value) => showAvatarModal = value"
       @avatar-updated="handleAvatarUpdated"
     />
+
+    <!-- 客服聊天模態框 -->
+    <Modal 
+      :show="showAiModal" 
+      title="AI 客服助手"
+      @update:show="(value) => showAiModal = value"
+    >
+      <div class="ai-modal-content">
+        <AiCustomerService ref="aiCustomerServiceRef" />
+      </div>
+    </Modal>
+
+    <button 
+      @click="showAiModal = true" 
+      class="floating-service-btn"
+      title="AI 客服助手"
+    >
+      <OpenAIOutlined />
+    </button>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
-import { EditOutlined } from '@antdv-next/icons'
+import { EditOutlined, OpenAIOutlined } from '@antdv-next/icons'
 import ChatRoom from '~/components/ChatRoom.vue'
 import Modal from '~/components/Modal.vue'
 import ConfirmModal from '~/components/ConfirmModal.vue'
 import AvatarPickerModal from '~/components/AvatarPickerModal.vue'
+import AiCustomerService from '~/components/AiCustomerService.vue'
 
 definePageMeta({
   layout: 'chat',
@@ -289,6 +311,8 @@ const profileService = useProfileService()
 const selectedRoom = ref<any>(null)
 const searchQuery = ref('')
 const rightPanelTab = ref<'profile' | 'friends'>('profile')
+const showAiModal = ref(false)
+const aiCustomerServiceRef = ref<any>(null)
 const openMenu = ref<any>(null)
 const showUserModal = ref(false)
 const showAvatarModal = ref(false)
@@ -1179,6 +1203,110 @@ onMounted(async () => {
 
     &:hover {
       background: #999;
+    }
+  }
+}
+
+/* 浮動客服按鈕 */
+.floating-service-btn {
+  position: fixed;
+  bottom: 30px;
+  right: 30px;
+  width: 56px;
+  height: 56px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #667eea 0%, #a894c7 100%);
+  color: white;
+  border: none;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  box-shadow: 0 4px 16px rgba(102, 126, 234, 0.4);
+  transition: all 0.3s ease;
+  z-index: 100;
+
+  &:hover {
+    transform: scale(1.1) translateY(-4px);
+    box-shadow: 0 6px 24px rgba(102, 126, 234, 0.5);
+  }
+
+  &:active {
+    transform: scale(0.95);
+  }
+
+  @media (max-width: 768px) {
+    width: 52px;
+    height: 52px;
+    bottom: 20px;
+    right: 20px;
+    font-size: 22px;
+  }
+}
+
+/* AI 客服 Modal */
+:deep(.ai-modal) {
+  .ant-modal {
+    max-width: 480px;
+    height: 600px;
+  }
+
+  .ant-modal-content {
+    display: flex;
+    flex-direction: column;
+    height: 100%;
+    padding: 0;
+  }
+
+  .ant-modal-body {
+    flex: 1;
+    overflow: hidden;
+    padding: 0;
+  }
+}
+
+.ai-modal-content {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: #f9f9f9;
+  border-radius: 8px;
+  overflow: hidden;
+
+  .ai-customer-service {
+    height: 100%;
+  }
+}
+
+/* 覆蓋 Modal 樣式以適應 AI 客服 */
+:deep(.modal-overlay) {
+  &.ai-modal-overlay {
+    .modal-content {
+      width: 90%;
+      max-width: 480px;
+      max-height: 600px;
+      padding: 0;
+      display: flex;
+      flex-direction: column;
+
+      .modal-header {
+        padding: 16px 20px;
+        border-bottom: 1px solid #e8e8e8;
+        background: white;
+        margin-bottom: 0;
+      }
+
+      .modal-form {
+        flex: 1;
+        overflow: hidden;
+        margin-bottom: 0;
+        padding: 0;
+      }
+
+      .modal-actions {
+        display: none;
+      }
     }
   }
 }

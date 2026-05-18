@@ -1,7 +1,7 @@
-const express = require("express");
-const prisma = require("../prisma");
-const { verifyToken } = require("../middleware/auth");
-const { successResponse, errorResponse } = require("../utils/responseHandler");
+import express from "express";
+import prisma from "../prisma.js";
+import { verifyToken } from "../middleware/auth.js";
+import { successResponse, errorResponse } from "../utils/responseHandler.js";
 
 const router = express.Router();
 
@@ -258,4 +258,4 @@ router.delete("/:friendId", verifyToken, async (req, res) => {
   }
 });
 
-module.exports = router;
+export default router;

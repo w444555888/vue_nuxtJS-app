@@ -1,7 +1,10 @@
 <template>
   <div v-if="show" class="modal-overlay" @click.self="emit('update:show', false)">
     <div class="modal-content">
-      <h2>{{ title }}</h2>
+      <div class="modal-header">
+        <h2>{{ title }}</h2>
+        <button class="btn-close" @click="emit('update:show', false)" title="關閉">✕</button>
+      </div>
       <div class="modal-form">
         <slot />
       </div>
@@ -18,7 +21,7 @@ defineProps<{
   title: string
 }>()
 
-defineEmits<{
+const emit = defineEmits<{
   'update:show': [value: boolean]
 }>()
 </script>
@@ -47,12 +50,41 @@ defineEmits<{
   overflow-y: auto;
   box-shadow: 0 10px 40px rgba(0, 0, 0, 0.15);
   animation: slideUp 0.3s ease;
+}
+
+.modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  gap: 12px;
 
   h2 {
-    margin: 0 0 16px 0;
+    margin: 0;
     font-size: 18px;
     color: #333;
     font-weight: 600;
+    flex: 1;
+  }
+}
+
+.btn-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  color: #999;
+  cursor: pointer;
+  padding: 4px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+  flex-shrink: 0;
+
+  &:hover {
+    color: #333;
+    background: #f0f0f0;
+    border-radius: 4px;
   }
 }
 

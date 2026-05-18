@@ -1,18 +1,15 @@
-// Socket.io 事件处理
-const { PrismaClient } = require("@prisma/client");
-const { PrismaPg } = require("@prisma/adapter-pg");
-const pg = require("pg");
+import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import pg from "pg";
 
-// Prisma v7 PostgreSQL 连接
 const connectionString = process.env.DATABASE_URL;
 const pool = new pg.Pool({ connectionString });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ adapter });
 
-// 存储在线用户
 const onlineUsers = new Map();
 
-module.exports = (io) => {
+export default (io) => {
   io.on("connection", (socket) => {
     console.log(`使用者連接: ${socket.id}`);
 

@@ -1,6 +1,6 @@
-const { PrismaClient } = require("@prisma/client");
-const { PrismaPg } = require("@prisma/adapter-pg");
-const pg = require("pg");
+import { PrismaClient } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
+import pg from "pg";
 
 // 驗證環境變數
 if (!process.env.DATABASE_URL) {
@@ -28,4 +28,4 @@ process.on("SIGINT", async () => {
   process.exit(0);
 });
 
-module.exports = prisma;
+export default prisma;
