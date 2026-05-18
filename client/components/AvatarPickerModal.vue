@@ -91,10 +91,6 @@ const { post } = useHttpClient()
 
 const avatarStyles = [
   { label: 'Pixel Art Neutral', value: 'pixel-art-neutral' },
-  { label: 'Pixel Art', value: 'pixel-art' },
-  { label: 'Adventurer', value: 'adventurer' },
-  { label: 'Avataaars', value: 'avataaars' },
-  { label: 'Bottts', value: 'bottts' },
   { label: 'Fun Emoji', value: 'fun-emoji' },
 ]
 
@@ -121,10 +117,8 @@ const saveAvatar = async () => {
     })
 
     if (result.success) {
-      // 更新本地存儲和 authStore
       if (authStore.user) {
         authStore.user.avatar = avatarUrl
-        // 保存到 localStorage
         const storedUser = JSON.parse(localStorage.getItem('auth_user') || '{}')
         storedUser.avatar = avatarUrl
         localStorage.setItem('auth_user', JSON.stringify(storedUser))
