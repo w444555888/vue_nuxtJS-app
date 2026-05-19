@@ -20,6 +20,8 @@ model User {
   receivedFriendRequests FriendRequest[] @relation("receiver")
   friendRelations1  Friend[] @relation("user1")
   friendRelations2  Friend[] @relation("user2")
+  sentPrivateMessages PrivateMessage[] @relation("sender")
+  receivedPrivateMessages PrivateMessage[] @relation("receiver")
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -97,4 +99,20 @@ model Friend {
   createdAt DateTime @default(now())
   
   @@unique([userId1, userId2]) // 防止重複關係
+}
+
+// 私聊消息模型
+model PrivateMessage {
+  id          Int      @id @default(autoincrement()) // 自動編號
+  content     String
+  
+  senderId    Int
+  receiverId  Int
+  
+  sender      User @relation("sender", fields: [senderId], references: [id], onDelete: Cascade)
+  receiver    User @relation("receiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  
+  isRead      Boolean  @default(false)
+  
+  createdAt   DateTime @default(now())
 }

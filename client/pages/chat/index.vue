@@ -28,39 +28,64 @@
         + 建立新群組
       </button>
 
-      <!-- 聊天室列表 -->
+      <!-- 聊天室和私聊列表 -->
       <div class="rooms-list">
-        <div v-if="filteredRooms.length === 0" class="empty-state">
-          暫無聊天室
-        </div>
-        <div v-for="room in filteredRooms" 
-             :key="room.id" 
-             @click="selectRoom(room)"
-             :class="['room-item', { active: selectedRoom?.id === room.id }]">
-          <div class="room-header">
-            <h3 class="room-name">{{ room.name }}</h3>
-            <button @click.stop="showRoomMenu(room)" class="btn-menu">⋮</button>
+        <!-- 群組區域 -->
+        <div class="rooms-section">
+          <h3 class="section-title">群組</h3>
+          <div v-if="filteredRooms.length === 0" class="empty-state">
+            暫無聊天室
           </div>
-          <p class="room-desc">{{ room.description || '無描述' }}</p>
-          <span v-if="room.unreadCount > 0" class="badge">{{ room.unreadCount }}</span>
-          
-          <!-- 房间菜单 -->
-          <div v-if="openMenu?.id === room.id" class="room-menu">
-            <button @click.stop="inviteFriendsToRoom(room)" class="menu-item">邀請好友</button>
-            <button 
-              v-if="room.creatorId === authStore.user?.id" 
-              @click.stop="editRoomModal.show = true; editRoomModal.room = room" 
-              class="menu-item"
-            >
-              編輯群組
-            </button>
-            <button 
-              v-if="room.creatorId === authStore.user?.id" 
-              @click.stop="deleteRoom(room)" 
-              class="menu-item delete"
-            >
-              刪除群組
-            </button>
+          <div v-for="room in filteredRooms" 
+               :key="`room-${room.id}`" 
+               @click="selectRoom(room)"
+               :class="['room-item', { active: selectedRoom?.id === room.id }]">
+            <div class="room-header">
+              <h3 class="room-name">{{ room.name }}</h3>
+              <button @click.stop="showRoomMenu(room)" class="btn-menu">⋮</button>
+            </div>
+            <p class="room-desc">{{ room.description || '無描述' }}</p>
+            <span v-if="room.unreadCount > 0" class="badge">{{ room.unreadCount }}</span>
+            
+            <!-- 房间菜单 -->
+            <div v-if="openMenu?.id === room.id" class="room-menu">
+              <button @click.stop="inviteFriendsToRoom(room)" class="menu-item">邀請好友</button>
+              <button 
+                v-if="room.creatorId === authStore.user?.id" 
+                @click.stop="editRoomModal.show = true; editRoomModal.room = room" 
+                class="menu-item"
+              >
+                編輯群組
+              </button>
+              <button 
+                v-if="room.creatorId === authStore.user?.id" 
+                @click.stop="deleteRoom(room)" 
+                class="menu-item delete"
+              >
+                刪除群組
+              </button>
+            </div>
+          </div>
+        </div>
+
+        <!-- 私聊區域 -->
+        <div class="private-section">
+          <h3 class="section-title">私聊</h3>
+          <div v-if="privateConversations.length === 0" class="empty-state">
+            暫無私聊
+          </div>
+          <div v-for="conv in privateConversations" 
+               :key="`conv-${conv.friendId}`" 
+               @click="startPrivateChat(conv.friend)"
+               :class="['conversation-item', { active: selectedFriend?.id === conv.friendId }]">
+            <img :src="conv.friend.avatar || `https://api.dicebear.com/9.x/pixel-art-neutral/svg?scale=50&seed=${conv.friend.username}`" 
+                 class="conv-avatar"
+                 alt="avatar">
+            <div class="conv-info">
+              <div class="conv-name">{{ conv.friend.username }}</div>
+              <div class="conv-preview">{{ conv.lastMessage }}</div>
+            </div>
+            <span v-if="conv.unreadCount > 0" class="badge">{{ conv.unreadCount }}</span>
           </div>
         </div>
       </div>
@@ -68,22 +93,80 @@
 
     <!-- 中间面板 -->
     <main class="main-content">
-      <div v-if="!selectedRoom" class="welcome-screen">
+      <div v-if="!selectedRoom && !selectedFriend" class="welcome-screen">
         <div class="welcome-content">
           <h1>歡迎來到聊天室</h1>
-          <p>選擇一個聊天室開始對話</p>
+          <p>選擇一個聊天室或好友開始對話</p>
           <button @click="showCreateRoomModal = true" class="btn-primary">
             建立第一個群組
           </button>
         </div>
       </div>
+      
+      <!-- 聊天室視圖 -->
       <ChatRoom 
-        v-else 
+        v-if="selectedRoom && !selectedFriend"
         :room="selectedRoom"
         :current-user-id="authStore.user?.id || 0"
         @invite="inviteFriendsToRoom(selectedRoom)"
         @message-sent="() => {}"
       />
+
+      <!-- 私聊視圖 -->
+      <div v-else-if="selectedFriend && !selectedRoom" class="private-chat-container">
+        <!-- 私聊頭部 -->
+        <div class="chat-header">
+          <div class="header-left">
+            <img :src="selectedFriend.avatar || `https://api.dicebear.com/9.x/pixel-art-neutral/svg?scale=50&seed=${selectedFriend.username}`"
+                 class="header-avatar"
+                 alt="avatar">
+            <div>
+              <h2 class="chat-title">{{ selectedFriend.username }}</h2>
+              <p class="chat-subtitle">{{ selectedFriend.email }}</p>
+            </div>
+          </div>
+          <div class="header-right">
+            <button @click="closePrivateChat" class="btn-icon-small">✕</button>
+          </div>
+        </div>
+
+        <!-- 私聊消息區 -->
+        <div class="messages-container">
+          <div v-if="privateMessages.length === 0" class="empty-messages">
+            暫無消息，開始對話吧
+          </div>
+          <div v-else class="messages-list">
+            <div 
+              v-for="msg in privateMessages" 
+              :key="msg.id" 
+              :class="['message-item', { own: msg.senderId === authStore.user?.id }]"
+            >
+              <img :src="msg.senderAvatar || `https://api.dicebear.com/9.x/pixel-art-neutral/svg?scale=50&seed=${msg.senderName}`" 
+                   class="message-avatar"
+                   alt="avatar">
+              <div class="message-content">
+                <div class="message-header">
+                  <span class="message-author">{{ msg.senderName }}</span>
+                  <span class="message-time">{{ formatTime(msg.createdAt) }}</span>
+                </div>
+                <div class="message-text">{{ msg.content }}</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 私聊輸入框 -->
+        <div class="chat-input-area">
+          <input 
+            v-model="privateMessageContent"
+            type="text" 
+            placeholder="輸入消息..." 
+            class="chat-input"
+            @keyup.enter="sendPrivateMessage"
+          >
+          <button @click="sendPrivateMessage" class="btn-send">發送</button>
+        </div>
+      </div>
     </main>
 
     <!-- 右侧面板 -->
@@ -135,7 +218,12 @@
           <div v-if="friends.length === 0" class="empty-state">暫無好友</div>
           <div v-for="friend in friends" :key="friend.id" class="friend-item">
             <span class="friend-name">{{ friend.username }}</span>
-            <button @click="removeFriend(friend)" class="btn-remove">✕</button>
+            <div class="friend-actions">
+              <button @click="startPrivateChat(friend)" class="btn-chat" title="開始聊天">
+                <MessageOutlined />
+              </button>
+              <button @click="removeFriend(friend)" class="btn-remove">✕</button>
+            </div>
           </div>
         </div>
 
@@ -260,7 +348,7 @@
     <!-- 頭像選擇模態框 -->
     <AvatarPickerModal 
       :show="showAvatarModal" 
-      :current-username="authStore.user?.username || ''"
+      :current-avatar-url="authStore.user?.avatar || `https://api.dicebear.com/9.x/pixel-art-neutral/svg?scale=50&seed=${authStore.user?.username}`"
       @update:show="(value) => showAvatarModal = value"
       @avatar-updated="handleAvatarUpdated"
     />
@@ -289,7 +377,7 @@
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
 import { message } from 'ant-design-vue'
-import { EditOutlined, OpenAIOutlined } from '@antdv-next/icons'
+import { EditOutlined, OpenAIOutlined, MessageOutlined } from '@antdv-next/icons'
 import ChatRoom from '~/components/ChatRoom.vue'
 import Modal from '~/components/Modal.vue'
 import ConfirmModal from '~/components/ConfirmModal.vue'
@@ -306,9 +394,11 @@ const authStore = useAuthStore()
 const chatService = useChatService()
 const friendService = useFriendService()
 const profileService = useProfileService()
+const socket = useSocket()
 
 
 const selectedRoom = ref<any>(null)
+const selectedFriend = ref<any>(null)
 const searchQuery = ref('')
 const rightPanelTab = ref<'profile' | 'friends'>('profile')
 const showAiModal = ref(false)
@@ -326,6 +416,11 @@ const editRoomModal = ref({
 const confirmAction = ref<() => Promise<void> | void>(() => {})
 const confirmTitle = ref('')
 const confirmMessage = ref('')
+
+// 私聊相關
+const privateMessages = ref<any[]>([])
+const privateMessageContent = ref('')
+const privateConversations = ref<any[]>([])
 
 // 表單資料
 const userForm = ref({
@@ -534,6 +629,96 @@ const logout = async () => {
   authService.logout()
 }
 
+// ==================== 私聊功能 ====================
+
+// 開始私聊
+const startPrivateChat = async (friend: any) => {
+  selectedRoom.value = null
+  selectedFriend.value = friend
+  privateMessages.value = []
+  privateMessageContent.value = ''
+
+  // 獲取與該好友的聊天記錄
+  const result = await chatService.fetchPrivateMessages(friend.id)
+  if (result.success && result.data) {
+    privateMessages.value = result.data.messages
+    
+    // 加入私聊Socket房間
+    socket.joinPrivateChat(authStore.user?.id || 0, friend.id)
+
+    // 標記消息為已讀
+    await chatService.markPrivateAsRead(friend.id)
+    // 更新左側會話列表（清除未讀標記）
+    await loadPrivateConversations()
+
+    // 監聽接收私聊消息
+    socket.onReceivePrivateMessage((data: any) => {
+      if (
+        (data.senderId === friend.id && data.receiverId === authStore.user?.id) ||
+        (data.senderId === authStore.user?.id && data.receiverId === friend.id)
+      ) {
+        privateMessages.value.push({
+          id: data.id,
+          content: data.content,
+          senderId: data.senderId,
+          senderName: data.senderName,
+          senderAvatar: data.senderAvatar,
+          receiverId: data.receiverId,
+          isRead: data.isRead,
+          createdAt: data.createdAt
+        })
+        // 更新私聊會話列表
+        loadPrivateConversations()
+      }
+    })
+
+    console.log(`開始與 ${friend.username} 的私聊`)
+  } else {
+    message.error(result.error || '無法加載聊天記錄')
+  }
+}
+
+// 關閉私聊
+const closePrivateChat = () => {
+  selectedFriend.value = null
+  privateMessages.value = []
+  privateMessageContent.value = ''
+  socket.offReceivePrivateMessage()
+}
+
+// 發送私聊消息
+const sendPrivateMessage = async () => {
+  if (!privateMessageContent.value.trim() || !selectedFriend.value) {
+    message.error('請輸入消息內容')
+    return
+  }
+
+  const friendId = selectedFriend.value.id
+  const content = privateMessageContent.value.trim()
+
+  // 通過Socket發送（實時）
+  socket.sendPrivateMessage(authStore.user?.id || 0, friendId, content)
+
+  // 同時保存到數據庫
+  const result = await chatService.sendPrivateMessage(friendId, content)
+  if (result.success) {
+    privateMessageContent.value = ''
+    message.success('消息已發送')
+    // 更新私聊會話列表
+    await loadPrivateConversations()
+  } else {
+    message.error(result.message || '發送失敗')
+  }
+}
+
+// 格式化時間
+const formatTime = (time: string) => {
+  const date = new Date(time)
+  const hours = String(date.getHours()).padStart(2, '0')
+  const minutes = String(date.getMinutes()).padStart(2, '0')
+  return `${hours}:${minutes}`
+}
+
 // 加载好友列表
 const loadFriends = async () => {
   const result = await friendService.fetchFriends()
@@ -566,8 +751,24 @@ const handleAvatarUpdated = async () => {
   message.success('聊天室頭像已同步更新')
 }
 
+// 加載私聊會話列表
+const loadPrivateConversations = async () => {
+  const result = await chatService.fetchPrivateConversations()
+  if (result.success) {
+    privateConversations.value = result.data || []
+  }
+}
+
 // 生命周期
 onMounted(async () => {
+  // 初始化Socket連接
+  socket.initSocket()
+  
+  // 設置用戶ID用於私聊
+  if (authStore.user?.id) {
+    socket.setUserId(authStore.user.id)
+  }
+
   // 獲取聊天室列表
   const rooms = await chatService.fetchRooms()
   if (rooms.success && rooms.data?.length > 0) {
@@ -580,6 +781,9 @@ onMounted(async () => {
   
   // 獲取待處理的好友請求
   await loadPendingRequests()
+  
+  // 獲取私聊會話列表
+  await loadPrivateConversations()
 })
 </script>
 
@@ -713,6 +917,9 @@ onMounted(async () => {
   flex: 1;
   overflow-y: auto;
   padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 
   &::-webkit-scrollbar {
     width: 6px;
@@ -729,6 +936,35 @@ onMounted(async () => {
     &:hover {
       background: #999;
     }
+  }
+}
+
+.rooms-section,
+.private-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.section-title {
+  margin: 0;
+  font-size: 12px;
+  font-weight: 700;
+  color: #999;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 0 12px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  &::before {
+    content: '';
+    flex-shrink: 0;
+    width: 3px;
+    height: 12px;
+    background: linear-gradient(135deg, #667eea 0%, #a894c7 100%);
+    border-radius: 1px;
   }
 }
 
@@ -752,6 +988,64 @@ onMounted(async () => {
     border-left: 3px solid #667eea;
     border-color: #667eea;
   }
+}
+
+.conversation-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  background: #f9fafb;
+  border-radius: 8px;
+  border: 1px solid #e8e8e8;
+  cursor: pointer;
+  transition: all 0.2s;
+  position: relative;
+
+  &:hover {
+    background: #f0f2f5;
+    border-color: #d9d9d9;
+  }
+
+  &.active {
+    background: linear-gradient(135deg, #667eea10 0%, #a894c710 100%);
+    border-left: 3px solid #667eea;
+    border-color: #667eea;
+  }
+}
+
+.conv-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  object-fit: cover;
+  background: #f0f0f0;
+}
+
+.conv-info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.conv-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: #333;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conv-preview {
+  font-size: 12px;
+  color: #999;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .room-header {
@@ -794,6 +1088,7 @@ onMounted(async () => {
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
+  line-clamp: 2;
   -webkit-line-clamp: 2;
   -webkit-box-orient: vertical;
   line-height: 1.4;
@@ -1686,5 +1981,107 @@ textarea.form-input {
   &:hover {
     background: #ff5252;
   }
+}
+
+/* ==================== 私聊樣式 ==================== */
+
+.private-chat-container {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: white;
+  border-left: 1px solid #e8e8e8;
+  border-right: 1px solid #e8e8e8;
+}
+
+.header-avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  margin-right: 12px;
+  object-fit: cover;
+  flex-shrink: 0;
+}
+
+.friend-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px 14px;
+  background: white;
+  border: 1px solid #e8eef8;
+  border-radius: 8px;
+  margin-bottom: 10px;
+  font-size: 13px;
+  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  position: relative;
+  overflow: hidden;
+
+  &::before {
+    content: '';
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 3px;
+    background: linear-gradient(135deg, #667eea 0%, #a894c7 100%);
+    transform: scaleY(0);
+    transition: transform 0.3s ease;
+  }
+
+  &:hover {
+    background: #f8f9fc;
+    border-color: #d5dff0;
+    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
+    transform: translateX(4px);
+
+    &::before {
+      transform: scaleY(1);
+    }
+  }
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.friend-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.btn-chat {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 6px 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: 6px;
+  transition: all 0.2s;
+  min-width: 32px;
+  height: 32px;
+  color: #667eea;
+
+  &:hover {
+    background: rgba(102, 126, 234, 0.1);
+    transform: scale(1.1);
+  }
+
+  :deep(svg) {
+    font-size: 16px;
+    width: 1em;
+    height: 1em;
+  }
+}
+
+.header-left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex: 1;
+  min-width: 0;
 }
 </style>

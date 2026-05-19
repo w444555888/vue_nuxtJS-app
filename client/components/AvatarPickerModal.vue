@@ -190,13 +190,10 @@ import { useHttpClient } from '~/utils/httpClient'
 
 interface Props {
   show: boolean
-  currentUsername: string
+  currentAvatarUrl: string
 }
 
-const props = withDefaults(defineProps<Props>(), {
-  show: false,
-  currentUsername: ''
-})
+const props = defineProps<Props>()
 
 const emit = defineEmits<{
   'update:show': [value: boolean]
@@ -213,6 +210,7 @@ const glassesVariants = ['dark01', 'dark02', 'dark03', 'dark04', 'dark05', 'dark
 const backgroundTypes = ['solid', 'gradientLinear']
 
 interface CustomOptions {
+  seed: string
   eyes: string
   eyesColor: string
   mouth: string
@@ -228,6 +226,7 @@ interface CustomOptions {
 }
 
 const customOptions = ref<CustomOptions>({
+  seed: 'avatar',
   eyes: 'variant01',
   eyesColor: '#5b7c8b',
   mouth: 'happy01',
@@ -243,9 +242,9 @@ const customOptions = ref<CustomOptions>({
 })
 
 const previewUrl = computed(() => {
-  const seed = props.currentUsername
   const params = new URLSearchParams()
-  params.append('seed', seed)
+  
+  params.append('seed', customOptions.value.seed)
   params.append('eyes', customOptions.value.eyes)
   params.append('eyesColor', customOptions.value.eyesColor.substring(1))
   params.append('eyesProbability', '100')
@@ -324,23 +323,53 @@ const saveAvatar = async () => {
   }
 }
 
+const initializeFromUrl = (url: string) => {
+  try {
+    const urlParams = new URLSearchParams(new URL(url).search)
+    
+    customOptions.value = {
+      seed: urlParams.get('seed') || 'avatar',
+      eyes: urlParams.get('eyes') || 'variant01',
+      eyesColor: '#' + (urlParams.get('eyesColor') || '5b7c8b'),
+      mouth: urlParams.get('mouth') || 'happy01',
+      mouthColor: '#' + (urlParams.get('mouthColor') || 'c98276'),
+      glasses: urlParams.get('glasses') || 'dark01',
+      glassesColor: '#' + (urlParams.get('glassesColor') || '4b4b4b'),
+      showGlasses: urlParams.get('glassesProbability') === '100',
+      flip: urlParams.get('flip') === 'true',
+      backgroundColor: '#' + (urlParams.get('backgroundColor')?.split(',')[0] || 'b6e3f4'),
+      backgroundColorSecond: '#' + (urlParams.get('backgroundColor')?.split(',')[1] || 'c0aede'),
+      backgroundType: (urlParams.get('backgroundType') || 'solid') as 'solid' | 'gradientLinear',
+      backgroundRotation: parseInt(urlParams.get('backgroundRotation') || '0')
+    }
+  } catch (error) {
+    console.error('Failed to parse avatar URL:', error)
+    resetOptions()
+  }
+}
+
+const resetOptions = () => {
+  customOptions.value = {
+    seed: 'avatar',
+    eyes: 'variant01',
+    eyesColor: '#5b7c8b',
+    mouth: 'happy01',
+    mouthColor: '#c98276',
+    glasses: 'dark01',
+    glassesColor: '#4b4b4b',
+    showGlasses: false,
+    flip: false,
+    backgroundColor: '#b6e3f4',
+    backgroundColorSecond: '#c0aede',
+    backgroundType: 'solid',
+    backgroundRotation: 0
+  }
+}
+
 // 當 show 變化時重置表單
 watch(() => props.show, (newVal) => {
   if (newVal) {
-    customOptions.value = {
-      eyes: 'variant01',
-      eyesColor: '#5b7c8b',
-      mouth: 'happy01',
-      mouthColor: '#c98276',
-      glasses: 'dark01',
-      glassesColor: '#4b4b4b',
-      showGlasses: false,
-      flip: false,
-      backgroundColor: '#b6e3f4',
-      backgroundColorSecond: '#c0aede',
-      backgroundType: 'solid',
-      backgroundRotation: 0
-    }
+    initializeFromUrl(props.currentAvatarUrl)
   }
 })
 </script>

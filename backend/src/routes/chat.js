@@ -403,4 +403,205 @@ router.delete("/rooms/:roomId/messages/:messageId", verifyToken, async (req, res
   }
 });
 
+// ==================== 私聊功能 ====================
+
+// 獲取所有私聊對話列表
+router.get("/private-conversations", verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+
+    // 獲取所有與該用戶的私聊消息（發送的和接收的）
+    const conversations = await prisma.privateMessage.findMany({
+      where: {
+        OR: [{ senderId: userId }, { receiverId: userId }],
+      },
+      include: {
+        sender: {
+          select: { id: true, username: true, avatar: true, email: true },
+        },
+        receiver: {
+          select: { id: true, username: true, avatar: true, email: true },
+        },
+      },
+      orderBy: { createdAt: "desc" },
+    });
+
+    // 合併對話，獲得唯一的好友列表和最新消息
+    const conversationMap = new Map();
+
+    conversations.forEach((msg) => {
+      const friendId = msg.senderId === userId ? msg.receiverId : msg.senderId;
+      const friend = msg.senderId === userId ? msg.receiver : msg.sender;
+      const key = `conv_${Math.min(userId, friendId)}_${Math.max(userId, friendId)}`;
+
+      if (!conversationMap.has(key)) {
+        conversationMap.set(key, {
+          friendId,
+          friend,
+          lastMessage: msg.content,
+          lastMessageTime: msg.createdAt,
+          unreadCount: msg.senderId !== userId && !msg.isRead ? 1 : 0,
+        });
+      } else {
+        // 累計未讀消息
+        const conv = conversationMap.get(key);
+        if (msg.senderId !== userId && !msg.isRead) {
+          conv.unreadCount += 1;
+        }
+      }
+    });
+
+    const formattedConversations = Array.from(conversationMap.values());
+
+    return successResponse(
+      res,
+      formattedConversations,
+      "獲取私聊對話列表成功",
+      200
+    );
+  } catch (error) {
+    console.error("獲取私聊對話失敗:", error);
+    return errorResponse(res, error, 500);
+  }
+});
+
+// 獲取與特定好友的私聊消息記錄
+router.get("/private/:friendId", verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { friendId } = req.params;
+    const friendIdInt = parseInt(friendId);
+
+    // 驗證好友是否存在
+    const friend = await prisma.user.findUnique({
+      where: { id: friendIdInt },
+      select: { id: true, username: true, avatar: true, email: true },
+    });
+
+    if (!friend) {
+      return errorResponse(res, "好友不存在", 404);
+    }
+
+    // 獲取與該好友的所有私聊消息
+    const messages = await prisma.privateMessage.findMany({
+      where: {
+        OR: [
+          { senderId: userId, receiverId: friendIdInt },
+          { senderId: friendIdInt, receiverId: userId },
+        ],
+      },
+      include: {
+        sender: {
+          select: { id: true, username: true, avatar: true },
+        },
+        receiver: {
+          select: { id: true, username: true, avatar: true },
+        },
+      },
+      orderBy: { createdAt: "asc" },
+      take: 100, // 獲取最近100條消息
+    });
+
+    // 標記所有接收的消息為已讀
+    await prisma.privateMessage.updateMany({
+      where: {
+        senderId: friendIdInt,
+        receiverId: userId,
+        isRead: false,
+      },
+      data: { isRead: true },
+    });
+
+    return successResponse(
+      res,
+      { friend, messages },
+      "獲取私聊消息成功",
+      200
+    );
+  } catch (error) {
+    console.error("獲取私聊消息失敗:", error);
+    return errorResponse(res, error, 500);
+  }
+});
+
+// 發送私聊消息
+router.post("/private/:friendId/messages", verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { friendId } = req.params;
+    const { content } = req.body;
+    const friendIdInt = parseInt(friendId);
+
+    if (!content || !content.trim()) {
+      return errorResponse(res, "消息內容不能為空", 400);
+    }
+
+    // 驗證好友是否存在且是好友關係
+    const isFriend = await prisma.friend.findFirst({
+      where: {
+        OR: [
+          { userId1: userId, userId2: friendIdInt },
+          { userId1: friendIdInt, userId2: userId },
+        ],
+      },
+    });
+
+    if (!isFriend) {
+      return errorResponse(res, "該用戶不是你的好友", 403);
+    }
+
+    // 創建私聊消息
+    const message = await prisma.privateMessage.create({
+      data: {
+        content: content.trim(),
+        senderId: userId,
+        receiverId: friendIdInt,
+        isRead: false,
+      },
+      include: {
+        sender: {
+          select: { id: true, username: true, avatar: true },
+        },
+        receiver: {
+          select: { id: true, username: true, avatar: true },
+        },
+      },
+    });
+
+    return successResponse(res, message, "消息已發送", 201);
+  } catch (error) {
+    console.error("發送私聊失敗:", error);
+    return errorResponse(res, error, 500);
+  }
+});
+
+// 標記私聊消息為已讀
+router.patch("/private/:friendId/mark-read", verifyToken, async (req, res) => {
+  try {
+    const userId = req.user.id;
+    const { friendId } = req.params;
+    const friendIdInt = parseInt(friendId);
+
+    // 標記所有來自該好友的未讀消息為已讀
+    const result = await prisma.privateMessage.updateMany({
+      where: {
+        senderId: friendIdInt,
+        receiverId: userId,
+        isRead: false,
+      },
+      data: { isRead: true },
+    });
+
+    return successResponse(
+      res,
+      result,
+      "消息已標記為已讀",
+      200
+    );
+  } catch (error) {
+    console.error("標記已讀失敗:", error);
+    return errorResponse(res, error, 500);
+  }
+});
+
 export default router;

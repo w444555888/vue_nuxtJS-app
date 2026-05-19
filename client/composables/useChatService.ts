@@ -2,6 +2,8 @@ export const useChatService = () => {
   const { get, post, patch, delete: deleteRequest } = useHttpClient()
   const chatStore = useChatStore()
 
+  // ==================== 群組聊天室功能 ====================
+
   // 获取聊天室列表
   const fetchRooms = async () => {
     try {
@@ -136,6 +138,77 @@ export const useChatService = () => {
     }
   }
 
+  // ==================== 私聊功能 ====================
+
+  // 獲取所有私聊對話列表
+  const fetchPrivateConversations = async () => {
+    try {
+      const result = await get('/api/chat/private-conversations')
+      const conversations = result.data || []
+      return { success: result.success, data: conversations }
+    } catch (error: any) {
+      console.error('獲取私聊對話失敗:', error)
+      return { success: false, error }
+    }
+  }
+
+  // 獲取與特定好友的私聊消息
+  const fetchPrivateMessages = async (friendId: number) => {
+    try {
+      const result = await get(`/api/chat/private/${friendId}`)
+      if (!result.success || !result.data) {
+        console.error('API 返回失敗:', result)
+        return { success: false, error: result.message || '獲取失敗', data: null }
+      }
+      
+      const { friend, messages } = result.data
+    
+      if (!friend || !messages) {
+        console.error('無效的返回數據:', result.data)
+        return { success: false, error: '返回數據格式不正確', data: null }
+      }
+      
+      const formattedMessages = messages.map((msg: any) => ({
+        id: msg.id,
+        content: msg.content,
+        senderId: msg.sender.id,
+        senderName: msg.sender.username,
+        senderAvatar: msg.sender.avatar,
+        receiverId: msg.receiver.id,
+        isRead: msg.isRead,
+        createdAt: msg.createdAt,
+        timestamp: msg.createdAt
+      }))
+      
+      return { success: result.success, data: { friend, messages: formattedMessages } }
+    } catch (error: any) {
+      console.error('獲取私聊消息失敗:', error)
+      return { success: false, error: error.message || '網路錯誤', data: null }
+    }
+  }
+
+  // 發送私聊消息
+  const sendPrivateMessage = async (friendId: number, content: string) => {
+    try {
+      const result = await post(`/api/chat/private/${friendId}/messages`, { content })
+      return { success: result.success, data: result.data, message: result.message }
+    } catch (error: any) {
+      console.error('發送私聊失敗:', error)
+      return { success: false, error: error.message, message: error.message }
+    }
+  }
+
+  // 標記私聊為已讀
+  const markPrivateAsRead = async (friendId: number) => {
+    try {
+      const result = await patch(`/api/chat/private/${friendId}/mark-read`, {})
+      return { success: result.success, data: result.data, message: result.message }
+    } catch (error: any) {
+      console.error('標記已讀失敗:', error)
+      return { success: false, error: error.message, message: error.message }
+    }
+  }
+
   return {
     fetchRooms,
     createRoom,
@@ -145,6 +218,10 @@ export const useChatService = () => {
     fetchMessages,
     sendMessage,
     editMessage,
-    deleteMessage
+    deleteMessage,
+    fetchPrivateConversations,
+    fetchPrivateMessages,
+    sendPrivateMessage,
+    markPrivateAsRead
   }
 }

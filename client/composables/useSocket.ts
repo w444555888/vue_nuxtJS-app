@@ -89,6 +89,76 @@ export const useSocket = () => {
     }
   }
 
+  // ==================== 私聊功能 ====================
+
+  // 設置用戶ID（連接時調用）
+  const setUserId = (userId: number) => {
+    if (socket.value) {
+      socket.value.emit('set_user_id', userId)
+    }
+  }
+
+  // 加入私聊對話
+  const joinPrivateChat = (userId: number, friendId: number) => {
+    if (socket.value) {
+      socket.value.emit('join_private_chat', { userId, friendId })
+    }
+  }
+
+  // 發送私聊消息
+  const sendPrivateMessage = (userId: number, friendId: number, content: string) => {
+    if (socket.value) {
+      socket.value.emit('send_private_message', { userId, friendId, content })
+    }
+  }
+
+  // 標記私聊為已讀
+  const markPrivateAsRead = (userId: number, friendId: number) => {
+    if (socket.value) {
+      socket.value.emit('mark_private_as_read', { userId, friendId })
+    }
+  }
+
+  // 監聽接收私聊消息
+  const onReceivePrivateMessage = (callback: (data: any) => void) => {
+    if (socket.value) {
+      socket.value.on('receive_private_message', callback)
+    }
+  }
+
+  // 監聽私聊消息接收通知
+  const onPrivateMessageReceived = (callback: (data: any) => void) => {
+    if (socket.value) {
+      socket.value.on('private_message_received', callback)
+    }
+  }
+
+  // 監聽私聊消息被標記為已讀
+  const onPrivateMessagesRead = (callback: (data: any) => void) => {
+    if (socket.value) {
+      socket.value.on('private_messages_read', callback)
+    }
+  }
+
+  // 移除私聊監聽
+  const offReceivePrivateMessage = () => {
+    if (socket.value) {
+      socket.value.off('receive_private_message')
+    }
+  }
+
+  const offPrivateMessageReceived = () => {
+    if (socket.value) {
+      socket.value.off('private_message_received')
+    }
+  }
+
+  const offPrivateMessagesRead = () => {
+    if (socket.value) {
+      socket.value.off('private_messages_read')
+    }
+  }
+
   return {
     socket,
     isConnected,
@@ -99,6 +169,16 @@ export const useSocket = () => {
     onReceiveMessage,
     onUserJoined,
     onUserLeft,
-    offReceiveMessage
+    offReceiveMessage,
+    setUserId,
+    joinPrivateChat,
+    sendPrivateMessage,
+    markPrivateAsRead,
+    onReceivePrivateMessage,
+    onPrivateMessageReceived,
+    onPrivateMessagesRead,
+    offReceivePrivateMessage,
+    offPrivateMessageReceived,
+    offPrivateMessagesRead
   }
 }
