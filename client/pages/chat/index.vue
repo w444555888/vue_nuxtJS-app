@@ -457,6 +457,12 @@ const invitableFriends = computed(() => {
 
 
 const selectRoom = (room: any) => {
+  // 切回群組時關閉私聊狀態，避免畫面條件互斥導致不顯示
+  selectedFriend.value = null
+  privateMessages.value = []
+  privateMessageContent.value = ''
+  socket.offReceivePrivateMessage()
+
   selectedRoom.value = room
   chatStore.setCurrentRoom(room)
   openMenu.value = null
@@ -633,6 +639,9 @@ const logout = async () => {
 
 // 開始私聊
 const startPrivateChat = async (friend: any) => {
+  // 先移除舊監聽，避免重複進入私聊造成事件重複綁定
+  socket.offReceivePrivateMessage()
+
   selectedRoom.value = null
   selectedFriend.value = friend
   privateMessages.value = []
