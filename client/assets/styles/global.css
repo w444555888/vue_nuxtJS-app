@@ -53,7 +53,57 @@ textarea {
   background: #999;
 }
 
-/* Element Plus 主题覆盖 */
+/* 專案主題色設定 */
 :root {
-  --el-color-primary: #667eea;
+  --theme-primary: #667eea;
+  --theme-primary-soft: #f0f3ff;
+  --theme-border: #d5dff0;
+  --theme-success: #28a745;
+}
+
+/* Checkbox 主題統一 */
+input[type='checkbox'] {
+  appearance: none;
+  -webkit-appearance: none;
+  -moz-appearance: none;
+  width: 18px;
+  height: 18px;
+  border: 2px solid var(--theme-border);
+  border-radius: 4px;
+  background: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  vertical-align: middle;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  flex-shrink: 0;
+}
+
+input[type='checkbox']:not(:checked) {
+  padding: 5px;
+}
+
+input[type='checkbox']:hover {
+  background: var(--theme-primary-soft);
+}
+
+input[type='checkbox']:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.18);
+}
+
+input[type='checkbox']:checked {
+  padding: 0;
+  background: #667eea;
+  border-color: var(--theme-primary);
+}
+
+input[type='checkbox']:checked::after {
+  content: '';
+  width: 7px;
+  height: 4px;
+  border-left: 1.5px solid #fff;
+  border-bottom: 1.5px solid #fff;
+  transform: rotate(-45deg) translateY(-1px);
 }

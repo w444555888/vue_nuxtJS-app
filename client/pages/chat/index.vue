@@ -1610,43 +1610,7 @@ textarea.form-input {
   }
 
   input[type="checkbox"] {
-    appearance: none;
-    -webkit-appearance: none;
-    -moz-appearance: none;
-    width: 18px;
-    height: 18px;
-    border: 2px solid #d5dff0;
-    border-radius: 4px;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    background: white;
-    flex-shrink: 0;
     margin-right: 12px;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-
-    &:hover {
-      border-color: #667eea;
-      background: #f0f3ff;
-    }
-
-    &:checked {
-      background: linear-gradient(135deg, #667eea 0%, #a894c7 100%);
-      border-color: #667eea;
-      position: relative;
-
-      &::after {
-        content: '✓';
-        color: white;
-        font-size: 12px;
-        font-weight: bold;
-        position: absolute;
-        display: flex;
-        align-items: center;
-        justify-content: center;
-      }
-    }
   }
 
   label {

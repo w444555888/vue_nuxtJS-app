@@ -5,19 +5,8 @@
     @update:show="(value) => emit('update:show', value)"
   >
     <div class="avatar-picker">
-      <!-- 自訂名字輸入 -->
-      <div class="seed-input">
-        <label>基礎名字（生成基礎）：</label>
-        <input 
-          v-model="customSeed"
-          type="text" 
-          placeholder="輸入任意文字"
-        />
-      </div>
-
       <!-- 自訂選項 -->
       <div class="customization-options">
-        <!-- 眼睛 -->
         <div class="option-group">
           <label>眼睛：</label>
           <div class="option-buttons">
@@ -45,7 +34,6 @@
           </div>
         </div>
 
-        <!-- 嘴巴 -->
         <div class="option-group">
           <label>嘴巴：</label>
           <div class="option-buttons">
@@ -60,7 +48,6 @@
           </div>
         </div>
 
-        <!-- 嘴巴顏色 -->
         <div class="option-group">
           <label>嘴巴顏色：</label>
           <div class="color-picker">
@@ -73,7 +60,6 @@
           </div>
         </div>
 
-        <!-- 眼鏡 -->
         <div class="option-group">
           <label>
             <input 
@@ -85,7 +71,6 @@
           </label>
         </div>
 
-        <!-- 眼鏡類型 -->
         <div class="option-group" v-if="customOptions.showGlasses">
           <label>眼鏡類型：</label>
           <div class="option-buttons">
@@ -100,7 +85,6 @@
           </div>
         </div>
 
-        <!-- 眼鏡顏色 -->
         <div class="option-group">
           <label>眼鏡顏色：</label>
           <div class="color-picker">
@@ -113,7 +97,6 @@
           </div>
         </div>
 
-        <!-- 翻轉 -->
         <div class="option-group">
           <label>
             <input 
@@ -125,7 +108,6 @@
           </label>
         </div>
 
-        <!-- 背景顏色 -->
         <div class="option-group">
           <label>背景顏色：</label>
           <div class="color-picker">
@@ -138,7 +120,6 @@
           </div>
         </div>
 
-        <!-- 背景類型 -->
         <div class="option-group">
           <label>背景類型：</label>
           <div class="option-buttons">
@@ -153,7 +134,6 @@
           </div>
         </div>
 
-        <!-- 漸變第二顏色 -->
         <div class="option-group" v-if="customOptions.backgroundType === 'gradientLinear'">
           <label>漸變第二顏色：</label>
           <div class="color-picker">
@@ -166,7 +146,6 @@
           </div>
         </div>
 
-        <!-- 漸變旋轉 -->
         <div class="option-group" v-if="customOptions.backgroundType === 'gradientLinear'">
           <label>漸變旋轉（0-360）：</label>
           <div class="slider-container">
@@ -187,7 +166,10 @@
         <div class="preview-box">
           <img :src="previewUrl" :alt="previewUrl" class="preview-img" />
         </div>
-        <button @click="randomizeAll" class="btn-randomize">🎲 隨機</button>
+        <button @click="randomizeAll" class="btn-randomize">
+          <ReloadOutlined />
+          <span>隨機</span>
+        </button>
       </div>
     </div>
 
@@ -201,6 +183,7 @@
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { message } from 'ant-design-vue'
+import { ReloadOutlined } from '@antdv-next/icons'
 import Modal from '~/components/Modal.vue'
 import { useAuthStore } from '~/stores/auth'
 import { useHttpClient } from '~/utils/httpClient'
@@ -228,8 +211,6 @@ const eyesVariants = ['variant01', 'variant02', 'variant03', 'variant04', 'varia
 const mouthVariants = ['happy01', 'happy02', 'happy03', 'happy04', 'happy05', 'happy06', 'happy07', 'happy08', 'happy09', 'happy10', 'happy11', 'happy12', 'happy13', 'sad01', 'sad02', 'sad03', 'sad04', 'sad05', 'sad06', 'sad07', 'sad08', 'sad09', 'sad10']
 const glassesVariants = ['dark01', 'dark02', 'dark03', 'dark04', 'dark05', 'dark06', 'dark07', 'light01', 'light02', 'light03', 'light04', 'light05', 'light06', 'light07']
 const backgroundTypes = ['solid', 'gradientLinear']
-
-const customSeed = ref('')
 
 interface CustomOptions {
   eyes: string
@@ -262,7 +243,7 @@ const customOptions = ref<CustomOptions>({
 })
 
 const previewUrl = computed(() => {
-  const seed = customSeed.value.trim() || props.currentUsername
+  const seed = props.currentUsername
   const params = new URLSearchParams()
   params.append('seed', seed)
   params.append('eyes', customOptions.value.eyes)
@@ -294,19 +275,27 @@ const previewUrl = computed(() => {
   return `https://api.dicebear.com/9.x/pixel-art-neutral/svg?${params.toString()}`
 })
 
+const getRandomColor = () => {
+  return `#${Math.floor(Math.random() * 0xffffff).toString(16).padStart(6, '0')}`
+}
+
 const randomizeAll = () => {
   customOptions.value.eyes = eyesVariants[Math.floor(Math.random() * eyesVariants.length)] as string
+  customOptions.value.eyesColor = getRandomColor()
   customOptions.value.mouth = mouthVariants[Math.floor(Math.random() * mouthVariants.length)] as string
+  customOptions.value.mouthColor = getRandomColor()
   customOptions.value.flip = Math.random() > 0.5
   customOptions.value.showGlasses = Math.random() > 0.4
   customOptions.value.backgroundType = Math.random() > 0.5 ? 'solid' : 'gradientLinear'
+  customOptions.value.backgroundColor = getRandomColor()
   if (customOptions.value.backgroundType === 'gradientLinear') {
+    customOptions.value.backgroundColorSecond = getRandomColor()
     customOptions.value.backgroundRotation = Math.floor(Math.random() * 360)
   }
   if (customOptions.value.showGlasses) {
     customOptions.value.glasses = glassesVariants[Math.floor(Math.random() * glassesVariants.length)] as string
+    customOptions.value.glassesColor = getRandomColor()
   }
-  customSeed.value = `avatar${Math.random().toString(36).substring(2, 9)}`
 }
 
 const saveAvatar = async () => {
@@ -338,7 +327,6 @@ const saveAvatar = async () => {
 // 當 show 變化時重置表單
 watch(() => props.show, (newVal) => {
   if (newVal) {
-    customSeed.value = ''
     customOptions.value = {
       eyes: 'variant01',
       eyesColor: '#5b7c8b',
@@ -364,39 +352,6 @@ watch(() => props.show, (newVal) => {
   gap: 20px;
 }
 
-/* 自訂名字 */
-.seed-input {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-
-  label {
-    font-size: 14px;
-    font-weight: 600;
-    color: #333;
-  }
-
-  input {
-    padding: 10px 12px;
-    border: 1px solid #d9d9d9;
-    border-radius: 6px;
-    font-size: 14px;
-    font-family: inherit;
-    transition: all 0.2s;
-
-    &:focus {
-      outline: none;
-      border-color: #667eea;
-      box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
-      background: #fafbfc;
-    }
-
-    &::placeholder {
-      color: #bbb;
-    }
-  }
-}
-
 /* 自訂選項 */
 .customization-options {
   display: flex;
@@ -420,12 +375,6 @@ watch(() => props.show, (newVal) => {
     display: flex;
     align-items: center;
     gap: 6px;
-  }
-
-  .checkbox-input {
-    width: 16px;
-    height: 16px;
-    cursor: pointer;
   }
 }
 
@@ -568,6 +517,9 @@ watch(() => props.show, (newVal) => {
   font-size: 14px;
   cursor: pointer;
   transition: all 0.2s;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
 
   &:hover {
     transform: translateY(-2px);
