@@ -1335,14 +1335,30 @@ onMounted(async () => {
 
 .profile-actions {
   display: flex;
-  gap: 12px;
-  justify-content: center;
-  align-items: center;
+  flex-direction: column;
+  gap: 16px;
+  align-items: stretch;
+  margin-top: 20px;
 
   .btn-secondary,
   .btn-danger {
-    margin-right: 0;
-    margin-bottom: 0;
+    width: 100%;
+    min-width: 120px;
+    font-size: 15px;
+    padding: 12px 0;
+    border-radius: 8px;
+    margin: 0;
+  }
+}
+
+@media (max-width: 480px) {
+  .profile-actions {
+    gap: 10px;
+    .btn-secondary,
+    .btn-danger {
+      font-size: 14px;
+      padding: 10px 0;
+    }
   }
 }
 
@@ -1700,7 +1716,7 @@ textarea.form-input {
 }
 
 .btn-danger {
-  background: #f82525;
+  background: rgba(248, 37, 37, 0.8);
   color: white;
 
   &:hover {
