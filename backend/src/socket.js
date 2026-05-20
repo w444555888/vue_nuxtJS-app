@@ -1,11 +1,4 @@
-import { PrismaClient } from "@prisma/client";
-import { PrismaPg } from "@prisma/adapter-pg";
-import pg from "pg";
-
-const connectionString = process.env.DATABASE_URL;
-const pool = new pg.Pool({ connectionString });
-const adapter = new PrismaPg(pool);
-const prisma = new PrismaClient({ adapter });
+import prisma from "./prisma.js";
 
 const onlineUsers = new Map(); // socketId -> { userId, roomId }
 const userConnections = new Map(); // userId -> socketId
@@ -54,7 +47,7 @@ export default (io) => {
           },
         });
 
-        // 广播到聊天室
+        // 廣播到聊天室
         io.to(`room_${roomId}`).emit("receive_message", {
           id: message.id,
           content: message.content,
@@ -64,10 +57,10 @@ export default (io) => {
           createdAt: message.createdAt,
         });
 
-        console.log(`新消息 [房间 ${roomId}]: ${content}`);
+        console.log(`新消息 [房間 ${roomId}]: ${content}`);
       } catch (error) {
-        console.error("消息保存失败:", error);
-        socket.emit("error", { message: "消息发送失败" });
+        console.error("訊息保存失敗:", error);
+        socket.emit("error", { message: "訊息發送失敗" });
       }
     });
 
@@ -152,8 +145,8 @@ export default (io) => {
 
         console.log(`新私聊消息 [${userId} -> ${friendId}]: ${content}`);
       } catch (error) {
-        console.error("私聊保存失败:", error);
-        socket.emit("error", { message: "消息发送失败" });
+        console.error("私聊保存失敗:", error);
+        socket.emit("error", { message: "訊息發送失敗" });
       }
     });
 

@@ -13,6 +13,7 @@ export const useSocket = () => {
   const initSocket = () => {
     if (socket.value) return
 
+    // 使用 token 進行身份驗證，並設置重連選項
     socket.value = io(socketUrl, {
       auth: {
         token: authStore.token
@@ -54,7 +55,7 @@ export const useSocket = () => {
     }
   }
 
-  // 发送消息
+  // 發送消息
   const sendMessage = (userId: number, roomId: number, content: string) => {
     if (socket.value) {
       socket.value.emit('send_message', { userId, roomId, content })
