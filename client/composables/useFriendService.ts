@@ -7,7 +7,7 @@ export const useFriendService = () => {
       const result = await get('/api/friends/list')
       return { success: result.success, data: result.data || [], message: result.message }
     } catch (error: any) {
-      console.error('❌ 獲取好友列表失敗:', error)
+      console.error(' 獲取好友列表失敗:', error)
       return { success: false, data: [], error: error.message, message: error.message }
     }
   }
@@ -18,7 +18,7 @@ export const useFriendService = () => {
       const result = await post('/api/friends/request/send', { receiverEmail })
       return { success: result.success, data: result.data, message: result.message }
     } catch (error: any) {
-      console.error('❌ 發送好友請求失敗:', error)
+      console.error(' 發送好友請求失敗:', error)
       return { success: false, error: error.message, message: error.message }
     }
   }
@@ -29,7 +29,7 @@ export const useFriendService = () => {
       const result = await get('/api/friends/requests/pending')
       return { success: result.success, data: result.data || [], message: result.message }
     } catch (error: any) {
-      console.error('❌ 獲取好友請求失敗:', error)
+      console.error(' 獲取好友請求失敗:', error)
       return { success: false, data: [], error: error.message, message: error.message }
     }
   }
@@ -40,7 +40,7 @@ export const useFriendService = () => {
       const result = await post(`/api/friends/request/accept/${requestId}`, {})
       return { success: result.success, data: result.data, message: result.message }
     } catch (error: any) {
-      console.error('❌ 接受好友請求失敗:', error)
+      console.error(' 接受好友請求失敗:', error)
       return { success: false, error: error.message, message: error.message }
     }
   }
@@ -51,7 +51,7 @@ export const useFriendService = () => {
       const result = await post(`/api/friends/request/reject/${requestId}`, {})
       return { success: result.success, data: result.data, message: result.message }
     } catch (error: any) {
-      console.error('❌ 拒絕好友請求失敗:', error)
+      console.error(' 拒絕好友請求失敗:', error)
       return { success: false, error: error.message, message: error.message }
     }
   }
@@ -62,7 +62,7 @@ export const useFriendService = () => {
       const result = await deleteRequest(`/api/friends/${friendId}`)
       return { success: result.success, data: result.data, message: result.message }
     } catch (error: any) {
-      console.error('❌ 刪除好友失敗:', error)
+      console.error(' 刪除好友失敗:', error)
       return { success: false, error: error.message, message: error.message }
     }
   }

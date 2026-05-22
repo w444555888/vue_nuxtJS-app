@@ -8,7 +8,7 @@ export const useProfileService = () => {
       const result = await get('/api/profile/me')
       return { success: result.success, data: result.data, message: result.message }
     } catch (error: any) {
-      console.error('❌ 獲取個人資料失敗:', error)
+      console.error(' 獲取個人資料失敗:', error)
       return { success: false, error: error.message, message: error.message }
     }
   }
