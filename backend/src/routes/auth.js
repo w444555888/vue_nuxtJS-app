@@ -21,7 +21,7 @@ router.post("/register", async (req, res) => {
     if (existingUser) {
       return errorResponse(res, "用戶已存在", 400);
     }
-    // 密码加密
+    // 加密
     const hashedPassword = await bcrypt.hash(password, 10);
     // 創建用戶
     const user = await prisma.user.create({
@@ -43,7 +43,7 @@ router.post("/register", async (req, res) => {
       user: { id: user.id, email: user.email, username: user.username, avatar: user.avatar }
     }, "註冊成功", 201);
   } catch (error) {
-    console.error("注册失败:", error);
+    console.error("註冊失敗:", error);
     return errorResponse(res, "註冊失敗", 500);
   }
 });
@@ -55,12 +55,11 @@ router.post("/login", async (req, res) => {
     return errorResponse(res, "缺少必填字段", 400);
   }
   try {
-    // 查找用户
+    // 查找使用者
     const user = await prisma.user.findUnique({ where: { email } });
     if (!user) {
       return errorResponse(res, "郵箱或密碼錯誤", 401);
     }
-    // 检查密码
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
       return errorResponse(res, "郵箱或密碼錯誤", 401);
@@ -76,7 +75,7 @@ router.post("/login", async (req, res) => {
       user: { id: user.id, email: user.email, username: user.username, avatar: user.avatar }
     }, "登入成功", 200);
   } catch (error) {
-    console.error("登入失败:", error);
+    console.error("登入失敗:", error);
     return errorResponse(res, "登入失敗", 500);
   }
 });
@@ -95,15 +94,15 @@ router.get("/me", verifyToken, async (req, res) => {
       },
     });
     if (!user) {
-      return res.status(404).json({ error: "用户不存在" });
+      return res.status(404).json({ error: "使用者不存在" });
     }
     res.json({
-      message: "成功获取用户信息",
+      message: "成功獲取使用者信息",
       user,
     });
   } catch (error) {
-    console.error("获取用户信息失败:", error);
-    res.status(500).json({ error: "获取用户信息失败" });
+    console.error("獲取使用者信息失敗:", error);
+    res.status(500).json({ error: "獲取使用者信息失敗" });
   }
 });
 

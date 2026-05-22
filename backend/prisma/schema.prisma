@@ -1,9 +1,9 @@
 generator client {
-  provider = "prisma-client-js"
+  provider = "prisma-client-js"  // Prisma 生成客戶端代碼
 }
 
 datasource db {
-  provider = "postgresql"
+  provider = "postgresql"  // 使用 PostgreSQL 數據庫
 }
 
 model User {
