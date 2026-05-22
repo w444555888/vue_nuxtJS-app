@@ -1672,12 +1672,6 @@ onMounted(async () => {
 .btn-reject {
   color: #f82525;
   background: rgba(248, 37, 37, 0.08);
-
-  &:hover {
-    color: white;
-    background: #f82525;
-    transform: scale(1.05);
-  }
 }
 
 .btn-accept {
@@ -1689,6 +1683,17 @@ onMounted(async () => {
     background: #28a745;
     transform: scale(1.05);
   }
+}
+
+.btn-chat {
+  color: #667eea;
+  border: none;
+}
+
+.friend-actions {
+  display: flex;
+  gap: 6px;
+  align-items: center;
 }
 
 .add-friend-section {

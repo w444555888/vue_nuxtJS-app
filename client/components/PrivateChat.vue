@@ -60,7 +60,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted } from 'vue'
+import { ref, onMounted, onUnmounted, watch } from 'vue'
 import dayjs from 'dayjs'
 import { message } from 'ant-design-vue'
 
@@ -97,6 +97,7 @@ const socket = useSocket()
 
 const messages = ref<Message[]>([])
 const messageContent = ref('')
+let messageListener: ((data: any) => void) | null = null
 
 const formatTime = (timestamp: string) => {
   return dayjs(timestamp).format('YYYY-MM-DD HH:mm')
@@ -129,6 +130,34 @@ const sendMessage = async () => {
   }
 }
 
+const setupMessageListener = () => {
+  // 先移除舊監聽器
+  if (messageListener) {
+    socket.offReceivePrivateMessage()
+  }
+
+  // 創建新監聽器
+  messageListener = (data: any) => {
+    if (
+      (data.senderId === props.friend.id && data.receiverId === props.currentUserId) ||
+      (data.senderId === props.currentUserId && data.receiverId === props.friend.id)
+    ) {
+      messages.value.push({
+        id: data.id,
+        content: data.content,
+        senderId: data.senderId,
+        senderName: data.senderName,
+        senderAvatar: data.senderAvatar,
+        receiverId: data.receiverId,
+        isRead: data.isRead,
+        createdAt: data.createdAt
+      })
+    }
+  }
+
+  socket.onReceivePrivateMessage(messageListener)
+}
+
 const loadMessages = async () => {
   const result = await chatService.fetchPrivateMessages(props.friend.id)
   if (result.success && result.data) {
@@ -140,24 +169,8 @@ const loadMessages = async () => {
     // 標記消息為已讀
     await chatService.markPrivateAsRead(props.friend.id)
 
-    // 監聽接收私聊消息
-    socket.onReceivePrivateMessage((data: any) => {
-      if (
-        (data.senderId === props.friend.id && data.receiverId === props.currentUserId) ||
-        (data.senderId === props.currentUserId && data.receiverId === props.friend.id)
-      ) {
-        messages.value.push({
-          id: data.id,
-          content: data.content,
-          senderId: data.senderId,
-          senderName: data.senderName,
-          senderAvatar: data.senderAvatar,
-          receiverId: data.receiverId,
-          isRead: data.isRead,
-          createdAt: data.createdAt
-        })
-      }
-    })
+    // 設置消息監聽器
+    setupMessageListener()
 
     console.log(`開始與 ${props.friend.username} 的私聊`)
   } else {
@@ -165,12 +178,25 @@ const loadMessages = async () => {
   }
 }
 
+// 監聽好友變化時重新加載消息
+watch(
+  () => props.friend.id,
+  () => {
+    messages.value = []
+    messageContent.value = ''
+    loadMessages()
+  }
+)
+
 onMounted(() => {
   loadMessages()
 })
 
 onUnmounted(() => {
-  socket.offReceivePrivateMessage()
+  if (messageListener) {
+    socket.offReceivePrivateMessage()
+    messageListener = null
+  }
 })
 </script>
 
