@@ -1,9 +1,13 @@
 import express from "express";
-import bcrypt from "bcryptjs";
-import jwt from "jsonwebtoken";
-import prisma from "../prisma.js";
 import { verifyToken } from "../middleware/auth.js";
 import { successResponse, errorResponse } from "../utils/responseHandler.js";
+import {
+  registerUser,
+  loginUser,
+  getCurrentUser,
+  updateUserAvatar,
+  getVerifyResult,
+} from "../services/auth.js";
 
 const router = express.Router();
 
@@ -14,37 +18,11 @@ router.post("/register", async (req, res) => {
     return errorResponse(res, "缺少必填字段", 400);
   }
   try {
-    // 檢查使用者是否存在
-    const existingUser = await prisma.user.findFirst({
-      where: { OR: [{ email }, { username }] },
-    });
-    if (existingUser) {
-      return errorResponse(res, "用戶已存在", 400);
-    }
-    // 加密
-    const hashedPassword = await bcrypt.hash(password, 10);
-    // 創建用戶
-    const user = await prisma.user.create({
-      data: {
-        email,
-        username,
-        password: hashedPassword,
-        avatar: `https://api.dicebear.com/9.x/pixel-art-neutral/svg?scale=50&seed=${username}`,
-      },
-    });
-    // 生成 JWT
-    const token = jwt.sign(
-      { id: user.id, username: user.username },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
-    return successResponse(res, {
-      token,
-      user: { id: user.id, email: user.email, username: user.username, avatar: user.avatar }
-    }, "註冊成功", 201);
+    const result = await registerUser({ email, username, password });
+    return successResponse(res, result, "註冊成功", 201);
   } catch (error) {
     console.error("註冊失敗:", error);
-    return errorResponse(res, "註冊失敗", 500);
+    return errorResponse(res, error, error.status || 500);
   }
 });
 
@@ -55,54 +33,22 @@ router.post("/login", async (req, res) => {
     return errorResponse(res, "缺少必填字段", 400);
   }
   try {
-    // 查找使用者
-    const user = await prisma.user.findUnique({ where: { email } });
-    if (!user) {
-      return errorResponse(res, "郵箱或密碼錯誤", 401);
-    }
-    const isPasswordValid = await bcrypt.compare(password, user.password);
-    if (!isPasswordValid) {
-      return errorResponse(res, "郵箱或密碼錯誤", 401);
-    }
-    // 生成 JWT
-    const token = jwt.sign(
-      { id: user.id, username: user.username },
-      process.env.JWT_SECRET,
-      { expiresIn: "7d" }
-    );
-    return successResponse(res, {
-      token,
-      user: { id: user.id, email: user.email, username: user.username, avatar: user.avatar }
-    }, "登入成功", 200);
+    const result = await loginUser({ email, password });
+    return successResponse(res, result, "登入成功", 200);
   } catch (error) {
     console.error("登入失敗:", error);
-    return errorResponse(res, "登入失敗", 500);
+    return errorResponse(res, error, error.status || 500);
   }
 });
 
 // 獲取當前用戶信息
 router.get("/me", verifyToken, async (req, res) => {
   try {
-    const user = await prisma.user.findUnique({
-      where: { id: req.userId },
-      select: {
-        id: true,
-        email: true,
-        username: true,
-        avatar: true,
-        createdAt: true,
-      },
-    });
-    if (!user) {
-      return res.status(404).json({ error: "使用者不存在" });
-    }
-    res.json({
-      message: "成功獲取使用者信息",
-      user,
-    });
+    const user = await getCurrentUser(req.user.id);
+    return successResponse(res, { user }, "成功獲取使用者信息", 200);
   } catch (error) {
     console.error("獲取使用者信息失敗:", error);
-    res.status(500).json({ error: "獲取使用者信息失敗" });
+    return errorResponse(res, error, error.status || 500);
   }
 });
  
@@ -113,30 +59,21 @@ router.post("/update-avatar", verifyToken, async (req, res) => {
     return errorResponse(res, "頭像 URL 不能為空", 400);
   }
   try {
-    const user = await prisma.user.update({
-      where: { id: req.user.id },
-      data: { avatar },
-      select: {
-        id: true,
-        email: true,
-        username: true,
-        avatar: true,
-        createdAt: true,
-      },
-    });
+    const user = await updateUserAvatar(req.user.id, avatar);
     return successResponse(res, { user }, "頭像更新成功", 200);
   } catch (error) {
     console.error("頭像更新失敗:", error);
-    return errorResponse(res, "頭像更新失敗", 500);
+    return errorResponse(res, error, error.status || 500);
   }
 });
 
 // 驗證 JWT Token
 router.post("/verify", verifyToken, (req, res) => {
+  const result = getVerifyResult(req.user);
   res.json({
     message: "Token 有效",
-    userId: req.userId,
-    username: req.username,
+    userId: result.userId,
+    username: result.username,
   });
 });
 

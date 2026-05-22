@@ -2,7 +2,7 @@
   <div class="chat-container">
     <!-- 左侧面板 -->
     <aside class="sidebar">
-      <!-- 使用者資訊 & 體外 -->
+      <!-- 使用者資訊 -->
       <div class="sidebar-header">
         <div class="user-quick-info">
           <img :src="authStore.user?.avatar || `https://api.dicebear.com/9.x/pixel-art-neutral/svg?scale=50&seed=${authStore.user?.username}`" 
@@ -113,60 +113,13 @@
       />
 
       <!-- 私聊視圖 -->
-      <div v-else-if="selectedFriend && !selectedRoom" class="private-chat-container">
-        <!-- 私聊頭部 -->
-        <div class="chat-header">
-          <div class="header-left">
-            <img :src="selectedFriend.avatar || `https://api.dicebear.com/9.x/pixel-art-neutral/svg?scale=50&seed=${selectedFriend.username}`"
-                 class="header-avatar"
-                 alt="avatar">
-            <div>
-              <h2 class="chat-title">{{ selectedFriend.username }}</h2>
-              <p class="chat-subtitle">{{ selectedFriend.email }}</p>
-            </div>
-          </div>
-          <div class="header-right">
-            <button @click="closePrivateChat" class="btn-icon-small">✕</button>
-          </div>
-        </div>
-
-        <!-- 私聊消息區 -->
-        <div class="messages-container">
-          <div v-if="privateMessages.length === 0" class="empty-messages">
-            暫無消息，開始對話吧
-          </div>
-          <div v-else class="messages-list">
-            <div 
-              v-for="msg in privateMessages" 
-              :key="msg.id" 
-              :class="['message-item', { own: msg.senderId === authStore.user?.id }]"
-            >
-              <img :src="msg.senderAvatar || `https://api.dicebear.com/9.x/pixel-art-neutral/svg?scale=50&seed=${msg.senderName}`" 
-                   class="message-avatar"
-                   alt="avatar">
-              <div class="message-content">
-                <div class="message-header">
-                  <span class="message-author">{{ msg.senderName }}</span>
-                  <span class="message-time">{{ formatTime(msg.createdAt) }}</span>
-                </div>
-                <div class="message-text">{{ msg.content }}</div>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <!-- 私聊輸入框 -->
-        <div class="chat-input-area">
-          <input 
-            v-model="privateMessageContent"
-            type="text" 
-            placeholder="輸入消息..." 
-            class="chat-input"
-            @keyup.enter="sendPrivateMessage"
-          >
-          <button @click="sendPrivateMessage" class="btn-send">發送</button>
-        </div>
-      </div>
+      <PrivateChat 
+        v-if="selectedFriend && !selectedRoom"
+        :friend="selectedFriend"
+        :current-user-id="authStore.user?.id || 0"
+        @close="closePrivateChat"
+        @message-sent="loadPrivateConversations"
+      />
     </main>
 
     <!-- 右侧面板 -->
@@ -376,16 +329,17 @@
 
 <script setup lang="ts">
 import { ref, computed, onMounted } from 'vue'
+import dayjs from 'dayjs'
 import { message } from 'ant-design-vue'
 import { EditOutlined, OpenAIOutlined, MessageOutlined } from '@antdv-next/icons'
 import ChatRoom from '~/components/ChatRoom.vue'
+import PrivateChat from '~/components/PrivateChat.vue'
 import Modal from '~/components/Modal.vue'
 import ConfirmModal from '~/components/ConfirmModal.vue'
 import AvatarPickerModal from '~/components/AvatarPickerModal.vue'
 import AiCustomerService from '~/components/AiCustomerService.vue'
 
 definePageMeta({
-  layout: 'chat',
   middleware: 'auth'
 })
 
@@ -418,8 +372,6 @@ const confirmTitle = ref('')
 const confirmMessage = ref('')
 
 // 私聊相關
-const privateMessages = ref<any[]>([])
-const privateMessageContent = ref('')
 const privateConversations = ref<any[]>([])
 
 // 表單資料
@@ -457,12 +409,8 @@ const invitableFriends = computed(() => {
 
 
 const selectRoom = (room: any) => {
-  // 切回群組時關閉私聊狀態，避免畫面條件互斥導致不顯示
+  // 切回群組時關閉私聊狀態
   selectedFriend.value = null
-  privateMessages.value = []
-  privateMessageContent.value = ''
-  socket.offReceivePrivateMessage()
-
   selectedRoom.value = room
   chatStore.setCurrentRoom(room)
   openMenu.value = null
@@ -638,95 +586,16 @@ const logout = async () => {
 // ==================== 私聊功能 ====================
 
 // 開始私聊
-const startPrivateChat = async (friend: any) => {
-  // 先移除舊監聽，避免重複進入私聊造成事件重複綁定
-  socket.offReceivePrivateMessage()
-
+const startPrivateChat = (friend: any) => {
   selectedRoom.value = null
   selectedFriend.value = friend
-  privateMessages.value = []
-  privateMessageContent.value = ''
-
-  // 獲取與該好友的聊天記錄
-  const result = await chatService.fetchPrivateMessages(friend.id)
-  if (result.success && result.data) {
-    privateMessages.value = result.data.messages
-    
-    // 加入私聊Socket房間
-    socket.joinPrivateChat(authStore.user?.id || 0, friend.id)
-
-    // 標記消息為已讀
-    await chatService.markPrivateAsRead(friend.id)
-    // 更新左側會話列表（清除未讀標記）
-    await loadPrivateConversations()
-
-    // 監聽接收私聊消息
-    socket.onReceivePrivateMessage((data: any) => {
-      if (
-        (data.senderId === friend.id && data.receiverId === authStore.user?.id) ||
-        (data.senderId === authStore.user?.id && data.receiverId === friend.id)
-      ) {
-        privateMessages.value.push({
-          id: data.id,
-          content: data.content,
-          senderId: data.senderId,
-          senderName: data.senderName,
-          senderAvatar: data.senderAvatar,
-          receiverId: data.receiverId,
-          isRead: data.isRead,
-          createdAt: data.createdAt
-        })
-        // 更新私聊會話列表
-        loadPrivateConversations()
-      }
-    })
-
-    console.log(`開始與 ${friend.username} 的私聊`)
-  } else {
-    message.error(result.error || '無法加載聊天記錄')
-  }
 }
 
 // 關閉私聊
 const closePrivateChat = () => {
   selectedFriend.value = null
-  privateMessages.value = []
-  privateMessageContent.value = ''
-  socket.offReceivePrivateMessage()
 }
 
-// 發送私聊消息
-const sendPrivateMessage = async () => {
-  if (!privateMessageContent.value.trim() || !selectedFriend.value) {
-    message.error('請輸入消息內容')
-    return
-  }
-
-  const friendId = selectedFriend.value.id
-  const content = privateMessageContent.value.trim()
-
-  // 通過Socket發送（實時）
-  socket.sendPrivateMessage(authStore.user?.id || 0, friendId, content)
-
-  // 同時保存到數據庫
-  const result = await chatService.sendPrivateMessage(friendId, content)
-  if (result.success) {
-    privateMessageContent.value = ''
-    message.success('消息已發送')
-    // 更新私聊會話列表
-    await loadPrivateConversations()
-  } else {
-    message.error(result.message || '發送失敗')
-  }
-}
-
-// 格式化時間
-const formatTime = (time: string) => {
-  const date = new Date(time)
-  const hours = String(date.getHours()).padStart(2, '0')
-  const minutes = String(date.getMinutes()).padStart(2, '0')
-  return `${hours}:${minutes}`
-}
 
 // 加载好友列表
 const loadFriends = async () => {
@@ -1992,105 +1861,5 @@ textarea.form-input {
   }
 }
 
-/* ==================== 私聊樣式 ==================== */
 
-.private-chat-container {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  background: white;
-  border-left: 1px solid #e8e8e8;
-  border-right: 1px solid #e8e8e8;
-}
-
-.header-avatar {
-  width: 40px;
-  height: 40px;
-  border-radius: 50%;
-  margin-right: 12px;
-  object-fit: cover;
-  flex-shrink: 0;
-}
-
-.friend-item {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  padding: 12px 14px;
-  background: white;
-  border: 1px solid #e8eef8;
-  border-radius: 8px;
-  margin-bottom: 10px;
-  font-size: 13px;
-  transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
-  position: relative;
-  overflow: hidden;
-
-  &::before {
-    content: '';
-    position: absolute;
-    left: 0;
-    top: 0;
-    bottom: 0;
-    width: 3px;
-    background: linear-gradient(135deg, #667eea 0%, #a894c7 100%);
-    transform: scaleY(0);
-    transition: transform 0.3s ease;
-  }
-
-  &:hover {
-    background: #f8f9fc;
-    border-color: #d5dff0;
-    box-shadow: 0 2px 8px rgba(102, 126, 234, 0.1);
-    transform: translateX(4px);
-
-    &::before {
-      transform: scaleY(1);
-    }
-  }
-
-  &:last-child {
-    margin-bottom: 0;
-  }
-}
-
-.friend-actions {
-  display: flex;
-  gap: 8px;
-  align-items: center;
-}
-
-.btn-chat {
-  background: none;
-  border: none;
-  cursor: pointer;
-  padding: 6px 8px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  border-radius: 6px;
-  transition: all 0.2s;
-  min-width: 32px;
-  height: 32px;
-  color: #667eea;
-
-  &:hover {
-    background: rgba(102, 126, 234, 0.1);
-    transform: scale(1.1);
-  }
-
-  :deep(svg) {
-    font-size: 16px;
-    width: 1em;
-    height: 1em;
-  }
-}
-
-.header-left {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  flex: 1;
-  min-width: 0;
-}
 </style>

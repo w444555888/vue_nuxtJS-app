@@ -230,7 +230,7 @@ const scrollToBottom = () => {
 
 // 格式化時間
 const formatTime = (timestamp: string) => {
-  return dayjs(timestamp).format('HH:mm')
+  return dayjs(timestamp).format('YYYY-MM-DD HH:mm')
 }
 
 // 顯示右鍵菜單
