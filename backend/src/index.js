@@ -3,6 +3,7 @@ import express from "express";
 import cors from "cors";
 import http from "http";
 import { Server as SocketIO } from "socket.io";
+import jwt from "jsonwebtoken";
 import socketHandler from "./socket.js";
 import authRoutes from "./routes/auth.js";
 import chatRoutes from "./routes/chat.js";
@@ -27,6 +28,27 @@ app.use("/api/chat", chatRoutes);
 app.use("/api/friends", friendsRoutes);
 app.use("/api/profile", profileRoutes);
 app.use("/api/ai", aiRoutes);
+
+io.use((socket, next) => {
+  try {
+    const authToken = socket.handshake.auth?.token;
+    const headerToken = socket.handshake.headers?.authorization?.split(" ")[1];
+    const token = authToken || headerToken;
+
+    if (!token) {
+      return next(new Error("未授權：ws 缺少 token"));
+    }
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+    socket.user = {
+      id: decoded.id,
+      username: decoded.username,
+    };
+    return next();
+  } catch (error) {
+    return next(new Error("未授權：ws token 無效或已過期"));
+  }
+});
 
 socketHandler(io);
 

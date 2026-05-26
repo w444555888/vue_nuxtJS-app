@@ -183,8 +183,9 @@ const contextMenu = ref({
 })
 
 const chatService = useChatService()
-const { socket, isConnected, initSocket, joinRoom, sendMessage: socketSendMessage, onReceiveMessage, disconnectSocket } = useSocket()
+const { initSocket, joinRoom, sendMessage: socketSendMessage, onReceiveMessage, offReceiveMessage } = useSocket()
 const authStore = useAuthStore()
+let roomMessageListener: ((data: any) => void) | null = null
 
 // 加載消息
 const loadMessages = async () => {
@@ -338,7 +339,7 @@ onMounted(async () => {
   }
   
   // 監聽實時消息
-  onReceiveMessage((data: any) => {
+  roomMessageListener = (data: any) => {
     const newMessage: Message = {
       id: data.id || Date.now(),
       content: data.content,
@@ -349,7 +350,9 @@ onMounted(async () => {
     }
     messages.value.push(newMessage)
     nextTick(() => scrollToBottom())
-  })
+  }
+
+  onReceiveMessage(roomMessageListener)
 })
 
 // 每次更新後自動滾動到底部
@@ -359,8 +362,10 @@ onUpdated(() => {
 
 // 組件卸載時清理 Socket
 onUnmounted(() => {
-  // 離開聊天室邏輯（可選，後端暫未實現 leave_room）
-  // disconnectSocket()
+  if (roomMessageListener) {
+    offReceiveMessage(roomMessageListener)
+    roomMessageListener = null
+  }
 })
 
 // 監控房間變化，重新加載消息

@@ -104,7 +104,10 @@ const formatTime = (timestamp: string) => {
 }
 
 const closeChat = () => {
-  socket.offReceivePrivateMessage()
+  if (messageListener) {
+    socket.offReceivePrivateMessage(messageListener)
+    messageListener = null
+  }
   emit('close')
 }
 
@@ -116,24 +119,17 @@ const sendMessage = async () => {
 
   const content = messageContent.value.trim()
 
-  // 通過 Socket 發送（實時）
+  // 通過 Socket 發送，後端統一寫入資料庫與廣播
   socket.sendPrivateMessage(props.currentUserId, props.friend.id, content)
 
-  // 同時保存到數據庫
-  const result = await chatService.sendPrivateMessage(props.friend.id, content)
-  if (result.success) {
-    messageContent.value = ''
-    message.success('消息已發送')
-    emit('messageSent')
-  } else {
-    message.error(result.message || '發送失敗')
-  }
+  messageContent.value = ''
+  emit('messageSent')
 }
 
 const setupMessageListener = () => {
   // 先移除舊監聽器
   if (messageListener) {
-    socket.offReceivePrivateMessage()
+    socket.offReceivePrivateMessage(messageListener)
   }
 
   // 創建新監聽器
@@ -194,7 +190,7 @@ onMounted(() => {
 
 onUnmounted(() => {
   if (messageListener) {
-    socket.offReceivePrivateMessage()
+    socket.offReceivePrivateMessage(messageListener)
     messageListener = null
   }
 })

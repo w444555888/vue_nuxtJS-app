@@ -328,7 +328,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, onMounted } from 'vue'
+import { ref, computed, onMounted, onUnmounted } from 'vue'
 import dayjs from 'dayjs'
 import { message } from 'ant-design-vue'
 import { EditOutlined, OpenAIOutlined, MessageOutlined } from '@antdv-next/icons'
@@ -637,6 +637,16 @@ const loadPrivateConversations = async () => {
   }
 }
 
+const handlePrivateMessageReceived = async (payload: any) => {
+  await loadPrivateConversations()
+
+  // 若正在和該好友聊天，收到消息後立即標記已讀並刷新列表
+  if (selectedFriend.value?.id === payload?.senderId) {
+    await chatService.markPrivateAsRead(payload.senderId)
+    await loadPrivateConversations()
+  }
+}
+
 // 生命周期
 onMounted(async () => {
   // 初始化Socket連接
@@ -646,6 +656,8 @@ onMounted(async () => {
   if (authStore.user?.id) {
     socket.setUserId(authStore.user.id)
   }
+
+  socket.onPrivateMessageReceived(handlePrivateMessageReceived)
 
   // 獲取聊天室列表
   const rooms = await chatService.fetchRooms()
@@ -662,6 +674,10 @@ onMounted(async () => {
   
   // 獲取私聊會話列表
   await loadPrivateConversations()
+})
+
+onUnmounted(() => {
+  socket.offPrivateMessageReceived(handlePrivateMessageReceived)
 })
 </script>
 
@@ -1652,6 +1668,7 @@ onMounted(async () => {
 }
 
 .btn-remove,
+.btn-chat,
 .btn-accept,
 .btn-reject {
   background: none;
@@ -1865,6 +1882,4 @@ textarea.form-input {
     background: #ff5252;
   }
 }
-
-
 </style>

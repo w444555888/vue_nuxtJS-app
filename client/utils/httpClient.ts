@@ -23,7 +23,7 @@ const createHttpClient = (): AxiosInstance => {
   const authStore = useAuthStore()
   const router = useRouter()
 
-  const apiBase = config.public.apiBase || 'http://localhost:3001'
+  const apiBase = config.public.apiBase || 'http://127.0.0.1:3001'
 
   const instance = axios.create({
     baseURL: apiBase,

@@ -1,6 +1,6 @@
 // @ts-nocheck
-const apiBase = process.env.API_BASE || 'http://localhost:3001'
-const socketUrl = process.env.SOCKET_URL || 'http://localhost:3001'
+const apiBase = process.env.API_BASE || 'http://127.0.0.1:3001'
+const socketUrl = process.env.SOCKET_URL || 'http://127.0.0.1:3001'
 
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
