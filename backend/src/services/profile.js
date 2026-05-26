@@ -35,33 +35,55 @@ export const updateMyProfile = async (userId, payload) => {
   }
 
   const updateData = {};
+  const checkQueries = [];
 
+  // 並行檢查重複的用戶名和郵箱
   if (username) {
-    const existingUser = await prisma.user.findUnique({ where: { username } });
-    if (existingUser && existingUser.id !== userId) {
-      throw createError("用戶名已被使用", 400);
-    }
-    updateData.username = username;
+    checkQueries.push(
+      prisma.user.findUnique({ 
+        where: { username },
+        select: { id: true }
+      })
+    );
+  } else {
+    checkQueries.push(null);
   }
 
   if (email) {
-    const existingUser = await prisma.user.findUnique({ where: { email } });
-    if (existingUser && existingUser.id !== userId) {
-      throw createError("郵箱已被使用", 400);
-    }
-    updateData.email = email;
+    checkQueries.push(
+      prisma.user.findUnique({ 
+        where: { email },
+        select: { id: true }
+      })
+    );
+  } else {
+    checkQueries.push(null);
   }
 
-  if (avatar) {
-    updateData.avatar = avatar;
+  const [existingUsername, existingEmail] = await Promise.all(checkQueries);
+
+  if (existingUsername && existingUsername.id !== userId) {
+    throw createError("用戶名已被使用", 400);
   }
+
+  if (existingEmail && existingEmail.id !== userId) {
+    throw createError("郵箱已被使用", 400);
+  }
+
+  if (username) updateData.username = username;
+  if (email) updateData.email = email;
+  if (avatar) updateData.avatar = avatar;
 
   if (newPassword) {
     if (!password) {
       throw createError("更新密碼需要提供舊密碼", 400);
     }
 
-    const user = await prisma.user.findUnique({ where: { id: userId } });
+    const user = await prisma.user.findUnique({ 
+      where: { id: userId },
+      select: { password: true }
+    });
+    
     if (!user) {
       throw createError("用戶不存在", 404);
     }

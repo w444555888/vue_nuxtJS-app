@@ -35,6 +35,7 @@ export const getFriendList = async (userId) => {
 export const sendFriendRequest = async (senderId, receiverEmail) => {
   const receiver = await prisma.user.findUnique({
     where: { email: receiverEmail },
+    select: { id: true },
   });
 
   if (!receiver) {
@@ -45,26 +46,30 @@ export const sendFriendRequest = async (senderId, receiverEmail) => {
     throw createError("不能添加自己為好友", 400);
   }
 
-  const existingFriend = await prisma.friend.findFirst({
-    where: {
-      OR: [
-        { userId1: senderId, userId2: receiver.id },
-        { userId1: receiver.id, userId2: senderId },
-      ],
-    },
-  });
+  // 合併多個查詢為一個：檢查是否已是好友 + 是否已有待處理請求
+  const [existingFriend, existingRequest] = await Promise.all([
+    prisma.friend.findFirst({
+      where: {
+        OR: [
+          { userId1: senderId, userId2: receiver.id },
+          { userId1: receiver.id, userId2: senderId },
+        ],
+      },
+      select: { id: true },
+    }),
+    prisma.friendRequest.findFirst({
+      where: {
+        senderId,
+        receiverId: receiver.id,
+        status: "pending",
+      },
+      select: { id: true },
+    }),
+  ]);
 
   if (existingFriend) {
     throw createError("已經是好友", 400);
   }
-
-  const existingRequest = await prisma.friendRequest.findFirst({
-    where: {
-      senderId,
-      receiverId: receiver.id,
-      status: "pending",
-    },
-  });
 
   if (existingRequest) {
     throw createError("好友請求已發送，請勿重複發送", 400);

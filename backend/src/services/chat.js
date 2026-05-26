@@ -138,38 +138,44 @@ export const inviteFriendsToRoom = async (roomId, friendIds) => {
   }
 
   const normalizedFriendIds = friendIds.map((id) => parseInt(id, 10));
+  
+  // 驗證好友存在 (單個查詢)
   const friends = await prisma.user.findMany({
     where: {
       id: { in: normalizedFriendIds },
     },
+    select: { id: true },
   });
 
   if (friends.length !== normalizedFriendIds.length) {
     throw createError("部分好友不存在", 404);
   }
 
-  const invitedMembers = [];
-
-  for (const friendId of normalizedFriendIds) {
-    try {
-      const member = await prisma.chatRoomMember.create({
-        data: {
-          roomId,
-          userId: friendId,
-        },
-        include: {
-          user: {
-            select: { id: true, username: true, avatar: true },
-          },
-        },
-      });
-      invitedMembers.push(member);
-    } catch (error) {
-      if (error.code !== "P2002") {
-        throw error;
-      }
-    }
+  // 批量創建成員關係 (優化: 使用 createMany)
+  try {
+    await prisma.chatRoomMember.createMany({
+      data: normalizedFriendIds.map((userId) => ({
+        roomId,
+        userId,
+      })),
+      skipDuplicates: true, // 跳過已存在的重複關係
+    });
+  } catch (error) {
+    throw error;
   }
+
+  // 獲取已創建的成員信息
+  const invitedMembers = await prisma.chatRoomMember.findMany({
+    where: {
+      roomId,
+      userId: { in: normalizedFriendIds },
+    },
+    include: {
+      user: {
+        select: { id: true, username: true, avatar: true },
+      },
+    },
+  });
 
   return invitedMembers;
 };
@@ -276,11 +282,18 @@ export const deleteRoomMessage = async (userId, roomId, messageId) => {
 };
 
 export const getPrivateConversations = async (userId) => {
+  // 獲取所有對話（按最新消息排序，只取最近一條消息作代表）
   const conversations = await prisma.privateMessage.findMany({
     where: {
       OR: [{ senderId: userId }, { receiverId: userId }],
     },
-    include: {
+    select: {
+      id: true,
+      content: true,
+      createdAt: true,
+      isRead: true,
+      senderId: true,
+      receiverId: true,
       sender: {
         select: { id: true, username: true, avatar: true, email: true },
       },
@@ -306,9 +319,10 @@ export const getPrivateConversations = async (userId) => {
         lastMessageTime: msg.createdAt,
         unreadCount: msg.senderId !== userId && !msg.isRead ? 1 : 0,
       });
-      return;
+      return; // 只取該對話的最新消息
     }
 
+    // 计算未讀消息數 (只在首次迭代時計算，因為已排序)
     const conv = conversationMap.get(key);
     if (msg.senderId !== userId && !msg.isRead) {
       conv.unreadCount += 1;
