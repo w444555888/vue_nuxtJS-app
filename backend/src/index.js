@@ -20,6 +20,8 @@ const io = new SocketIO(server, {
   },
 });
 
+app.set("io", io);
+
 app.use(express.json());
 app.use(cors());
 

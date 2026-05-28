@@ -96,6 +96,20 @@ router.post("/rooms/:roomId/messages", verifyToken, async (req, res) => {
     const roomId = parseInt(req.params.roomId, 10);
     const { content } = req.body;
     const message = await sendRoomMessage(req.user.id, roomId, content);
+
+    const io = req.app.get("io");
+    io.to(`room_${roomId}`).emit("receive_message", {
+      id: message.id,
+      seq: message.id,
+      roomId,
+      content: message.content,
+      userId: message.user.id,
+      username: message.user.username,
+      avatar: message.user.avatar,
+      createdAt: message.createdAt,
+      eventType: "message_created",
+    });
+
     return successResponse(res, message, "消息已發送", 201);
   } catch (error) {
     console.error("發送消息失敗:", error);
@@ -120,6 +134,20 @@ router.patch("/rooms/:roomId/messages/:messageId", verifyToken, async (req, res)
     const messageId = parseInt(req.params.messageId, 10);
     const { content } = req.body;
     const updatedMessage = await updateRoomMessage(req.user.id, roomId, messageId, content);
+
+    const io = req.app.get("io");
+    io.to(`room_${roomId}`).emit("message_updated", {
+      id: updatedMessage.id,
+      seq: updatedMessage.id,
+      roomId,
+      content: updatedMessage.content,
+      userId: updatedMessage.user.id,
+      username: updatedMessage.user.username,
+      avatar: updatedMessage.user.avatar,
+      createdAt: updatedMessage.createdAt,
+      eventType: "message_updated",
+    });
+
     return successResponse(res, updatedMessage, "消息已更新", 200);
   } catch (error) {
     console.error("編輯消息失敗:", error);
@@ -132,6 +160,16 @@ router.delete("/rooms/:roomId/messages/:messageId", verifyToken, async (req, res
     const roomId = parseInt(req.params.roomId, 10);
     const messageId = parseInt(req.params.messageId, 10);
     const deletedMessage = await deleteRoomMessage(req.user.id, roomId, messageId);
+
+    const io = req.app.get("io");
+    io.to(`room_${roomId}`).emit("message_deleted", {
+      id: messageId,
+      seq: messageId,
+      roomId,
+      deletedBy: req.user.id,
+      eventType: "message_deleted",
+    });
+
     return successResponse(res, deletedMessage, "消息已刪除", 200);
   } catch (error) {
     console.error("刪除消息失敗:", error);
@@ -165,6 +203,23 @@ router.post("/private/:friendId/messages", verifyToken, async (req, res) => {
     const friendId = parseInt(req.params.friendId, 10);
     const { content } = req.body;
     const message = await sendPrivateMessage(req.user.id, friendId, content);
+
+    const io = req.app.get("io");
+    const conversationId = `private_${Math.min(req.user.id, friendId)}_${Math.max(req.user.id, friendId)}`;
+
+    io.to(conversationId).emit("receive_private_message", {
+      id: message.id,
+      seq: message.id,
+      content: message.content,
+      senderId: message.sender.id,
+      senderName: message.sender.username,
+      senderAvatar: message.sender.avatar,
+      receiverId: message.receiver.id,
+      isRead: message.isRead,
+      createdAt: message.createdAt,
+      eventType: "private_message_created",
+    });
+
     return successResponse(res, message, "消息已發送", 201);
   } catch (error) {
     console.error("發送私聊失敗:", error);
@@ -176,6 +231,14 @@ router.patch("/private/:friendId/mark-read", verifyToken, async (req, res) => {
   try {
     const friendId = parseInt(req.params.friendId, 10);
     const result = await markPrivateMessagesRead(req.user.id, friendId);
+
+    const io = req.app.get("io");
+    const conversationId = `private_${Math.min(req.user.id, friendId)}_${Math.max(req.user.id, friendId)}`;
+    io.to(conversationId).emit("private_messages_read", {
+      userId: friendId,
+      friendId: req.user.id,
+    });
+
     return successResponse(res, result, "消息已標記為已讀", 200);
   } catch (error) {
     console.error("標記已讀失敗:", error);

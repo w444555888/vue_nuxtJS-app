@@ -3,6 +3,35 @@ import prisma from "./prisma.js";
 const onlineUsers = new Map(); // socketId -> { userId, roomId }
 const userConnections = new Map(); // userId -> socketId
 
+const buildPrivateConversationId = (userIdA, userIdB) => {
+  return `private_${Math.min(userIdA, userIdB)}_${Math.max(userIdA, userIdB)}`;
+};
+
+const formatRoomMessageEvent = (message) => ({
+  id: message.id,
+  seq: message.id,
+  roomId: message.roomId,
+  content: message.content,
+  userId: message.user.id,
+  username: message.user.username,
+  avatar: message.user.avatar,
+  createdAt: message.createdAt,
+  eventType: "message_created",
+});
+
+const formatPrivateMessageEvent = (message) => ({
+  id: message.id,
+  seq: message.id,
+  content: message.content,
+  senderId: message.sender.id,
+  senderName: message.sender.username,
+  senderAvatar: message.sender.avatar,
+  receiverId: message.receiver.id,
+  isRead: message.isRead,
+  createdAt: message.createdAt,
+  eventType: "private_message_created",
+});
+
 export default (io) => {
   io.on("connection", (socket) => {
     const authenticatedUserId = socket.user?.id;
@@ -28,31 +57,104 @@ export default (io) => {
 
     // 使用者加入聊天室
     socket.on("join_room", async (data) => {
-      const { roomId } = data;
+      const { roomId, lastSeq } = data || {};
+      if (!roomId) {
+        socket.emit("error", { message: "roomId 不可為空" });
+        return;
+      }
+
+      const member = await prisma.chatRoomMember.findUnique({
+        where: {
+          userId_roomId: {
+            userId: authenticatedUserId,
+            roomId,
+          },
+        },
+      });
+
+      if (!member) {
+        socket.emit("error", { message: "你不是此聊天室的成員" });
+        return;
+      }
+
       socket.join(`room_${roomId}`);
 
       // 記錄線上使用者
       onlineUsers.set(socket.id, { userId: authenticatedUserId, roomId });
 
-      // 廣播使用者進入
-      io.to(`room_${roomId}`).emit("user_joined", {
-        userId: authenticatedUserId,
-        message: `使用者 ${authenticatedUserId} 進入了聊天室`,
-      });
+      // 補償斷線期間遺失的訊息
+      if (Number.isInteger(lastSeq) && lastSeq > 0) {
+        const missedMessages = await prisma.message.findMany({
+          where: {
+            roomId,
+            id: { gt: lastSeq },
+          },
+          include: {
+            user: {
+              select: { id: true, username: true, avatar: true },
+            },
+          },
+          orderBy: { id: "asc" },
+        });
+
+        if (missedMessages.length > 0) {
+          socket.emit(
+            "room_missed_messages",
+            missedMessages.map((message) => formatRoomMessageEvent(message))
+          );
+        }
+      }
+
+      const roomMembers = await io.in(`room_${roomId}`).fetchSockets();
+      if (roomMembers.length === 1) {
+        io.to(`room_${roomId}`).emit("user_joined", {
+          userId: authenticatedUserId,
+          roomId,
+          message: `使用者 ${authenticatedUserId} 進入了聊天室`,
+        });
+      }
 
       console.log(`使用者 ${authenticatedUserId} 加入聊天室 ${roomId}`);
     });
 
+    socket.on("leave_room", (data) => {
+      const { roomId } = data || {};
+      if (!roomId) return;
+      socket.leave(`room_${roomId}`);
+    });
+
     // 接收消息
-    socket.on("send_message", async (data) => {
+    socket.on("send_message", async (data, ack) => {
       const { roomId, content } = data;
 
       if (!content || !String(content).trim()) {
-        socket.emit("error", { message: "訊息內容不能為空" });
+        if (ack) {
+          ack({ success: false, message: "訊息內容不能為空" });
+        } else {
+          socket.emit("error", { message: "訊息內容不能為空" });
+        }
         return;
       }
 
       try {
+        const member = await prisma.chatRoomMember.findUnique({
+          where: {
+            userId_roomId: {
+              userId: authenticatedUserId,
+              roomId,
+            },
+          },
+        });
+
+        if (!member) {
+          if (ack) {
+            ack({ success: false, message: "你不是此聊天室的成員" });
+          } else {
+            socket.emit("error", { message: "你不是此聊天室的成員" });
+          }
+          return;
+        }
+
         // 保存到資料庫
         const message = await prisma.message.create({
           data: {
@@ -61,59 +163,216 @@ export default (io) => {
             roomId,
           },
           include: {
-            user: true,
+            user: {
+              select: { id: true, username: true, avatar: true },
+            },
           },
         });
 
+        const event = formatRoomMessageEvent(message);
+
         // 廣播到聊天室
-        io.to(`room_${roomId}`).emit("receive_message", {
-          id: message.id,
-          content: message.content,
-          userId: message.user.id,
-          username: message.user.username,
-          avatar: message.user.avatar,
-          createdAt: message.createdAt,
-        });
+        io.to(`room_${roomId}`).emit("receive_message", event);
+
+        if (ack) {
+          ack({ success: true, event });
+        }
 
         console.log(`新消息 [房間 ${roomId}]: ${content}`);
       } catch (error) {
         console.error("訊息保存失敗:", error);
-        socket.emit("error", { message: "訊息發送失敗" });
+        if (ack) {
+          ack({ success: false, message: "訊息發送失敗" });
+        } else {
+          socket.emit("error", { message: "訊息發送失敗" });
+        }
+      }
+    });
+
+    socket.on("update_message", async (data, ack) => {
+      const { roomId, messageId, content } = data || {};
+
+      if (!roomId || !messageId) {
+        ack?.({ success: false, message: "缺少必要參數" });
+        return;
+      }
+
+      if (!content || !String(content).trim()) {
+        ack?.({ success: false, message: "消息內容不能為空" });
+        return;
+      }
+
+      try {
+        const existingMessage = await prisma.message.findUnique({
+          where: { id: messageId },
+        });
+
+        if (!existingMessage || existingMessage.roomId !== roomId) {
+          ack?.({ success: false, message: "消息不存在" });
+          return;
+        }
+
+        if (existingMessage.userId !== authenticatedUserId) {
+          ack?.({ success: false, message: "只能編輯自己的消息" });
+          return;
+        }
+
+        const updatedMessage = await prisma.message.update({
+          where: { id: messageId },
+          data: { content: String(content).trim() },
+          include: {
+            user: {
+              select: { id: true, username: true, avatar: true },
+            },
+          },
+        });
+
+        const event = {
+          id: updatedMessage.id,
+          seq: updatedMessage.id,
+          roomId,
+          content: updatedMessage.content,
+          userId: updatedMessage.user.id,
+          username: updatedMessage.user.username,
+          avatar: updatedMessage.user.avatar,
+          createdAt: updatedMessage.createdAt,
+          eventType: "message_updated",
+        };
+
+        io.to(`room_${roomId}`).emit("message_updated", event);
+        ack?.({ success: true, event });
+      } catch (error) {
+        console.error("消息編輯失敗:", error);
+        ack?.({ success: false, message: "消息編輯失敗" });
+      }
+    });
+
+    socket.on("delete_message", async (data, ack) => {
+      const { roomId, messageId } = data || {};
+
+      if (!roomId || !messageId) {
+        ack?.({ success: false, message: "缺少必要參數" });
+        return;
+      }
+
+      try {
+        const existingMessage = await prisma.message.findUnique({
+          where: { id: messageId },
+        });
+
+        if (!existingMessage || existingMessage.roomId !== roomId) {
+          ack?.({ success: false, message: "消息不存在" });
+          return;
+        }
+
+        if (existingMessage.userId !== authenticatedUserId) {
+          ack?.({ success: false, message: "只能刪除自己的消息" });
+          return;
+        }
+
+        await prisma.message.delete({
+          where: { id: messageId },
+        });
+
+        const event = {
+          id: messageId,
+          seq: messageId,
+          roomId,
+          deletedBy: authenticatedUserId,
+          eventType: "message_deleted",
+        };
+
+        io.to(`room_${roomId}`).emit("message_deleted", event);
+        ack?.({ success: true, event });
+      } catch (error) {
+        console.error("消息刪除失敗:", error);
+        ack?.({ success: false, message: "消息刪除失敗" });
       }
     });
 
     // ==================== 私聊功能 ====================
 
     // 加入私聊對話
-    socket.on("join_private_chat", (data) => {
-      const { friendId } = data;
-      const conversationId = `private_${Math.min(authenticatedUserId, friendId)}_${Math.max(authenticatedUserId, friendId)}`;
+    socket.on("join_private_chat", async (data) => {
+      const { friendId, lastSeq } = data || {};
+      const conversationId = buildPrivateConversationId(authenticatedUserId, friendId);
       socket.join(conversationId);
+
+      if (Number.isInteger(lastSeq) && lastSeq > 0) {
+        const missedMessages = await prisma.privateMessage.findMany({
+          where: {
+            OR: [
+              {
+                senderId: authenticatedUserId,
+                receiverId: friendId,
+              },
+              {
+                senderId: friendId,
+                receiverId: authenticatedUserId,
+              },
+            ],
+            id: { gt: lastSeq },
+          },
+          include: {
+            sender: {
+              select: { id: true, username: true, avatar: true },
+            },
+            receiver: {
+              select: { id: true, username: true, avatar: true },
+            },
+          },
+          orderBy: { id: "asc" },
+        });
+
+        if (missedMessages.length > 0) {
+          socket.emit(
+            "private_missed_messages",
+            missedMessages.map((message) => formatPrivateMessageEvent(message))
+          );
+        }
+      }
+
       console.log(`用戶 ${authenticatedUserId} 加入與用戶 ${friendId} 的私聊`);
     });
 
+    socket.on("leave_private_chat", (data) => {
+      const { friendId } = data || {};
+      if (!friendId) return;
+      const conversationId = buildPrivateConversationId(authenticatedUserId, friendId);
+      socket.leave(conversationId);
+    });
+
     // 發送私聊消息
-    socket.on("send_private_message", async (data) => {
+    socket.on("send_private_message", async (data, ack) => {
       const { friendId, content } = data;
 
       if (!content || !String(content).trim()) {
-        socket.emit("error", { message: "消息內容不能為空" });
+        if (ack) {
+          ack({ success: false, message: "消息內容不能為空" });
+        } else {
+          socket.emit("error", { message: "消息內容不能為空" });
+        }
         return;
       }
 
       try {
         // 驗證好友關係
+        const friendIdNum = Number(friendId);
         const isFriend = await prisma.friend.findFirst({
           where: {
             OR: [
-              { userId1: authenticatedUserId, userId2: friendId },
-              { userId1: friendId, userId2: authenticatedUserId },
+              { userId1: authenticatedUserId, userId2: friendIdNum },
+              { userId1: friendIdNum, userId2: authenticatedUserId },
             ],
           },
         });
 
         if (!isFriend) {
-          socket.emit("error", { message: "該用戶不是你的好友" });
+          if (ack) {
+            ack({ success: false, message: "該用戶不是你的好友" });
+          } else {
+            socket.emit("error", { message: "該用戶不是你的好友" });
+          }
           return;
         }
 
@@ -136,19 +395,16 @@ export default (io) => {
         });
 
         // 構建對話ID
-  const conversationId = `private_${Math.min(authenticatedUserId, friendId)}_${Math.max(authenticatedUserId, friendId)}`;
+        const conversationId = buildPrivateConversationId(authenticatedUserId, friendId);
+
+        const event = formatPrivateMessageEvent(message);
 
         // 廣播到該對話的所有客戶端
-        io.to(conversationId).emit("receive_private_message", {
-          id: message.id,
-          content: message.content,
-          senderId: message.sender.id,
-          senderName: message.sender.username,
-          senderAvatar: message.sender.avatar,
-          receiverId: message.receiver.id,
-          isRead: message.isRead,
-          createdAt: message.createdAt,
-        });
+        io.to(conversationId).emit("receive_private_message", event);
+
+        if (ack) {
+          ack({ success: true, event });
+        }
 
         // 如果接收者線上，標記為已讀
         const receiverSocketId = userConnections.get(friendId);
@@ -169,12 +425,16 @@ export default (io) => {
         console.log(`新私聊消息 [${authenticatedUserId} -> ${friendId}]: ${content}`);
       } catch (error) {
         console.error("私聊保存失敗:", error);
-        socket.emit("error", { message: "訊息發送失敗" });
+        if (ack) {
+          ack({ success: false, message: "訊息發送失敗" });
+        } else {
+          socket.emit("error", { message: "訊息發送失敗" });
+        }
       }
     });
 
     // 標記私聊為已讀
-    socket.on("mark_private_as_read", async (data) => {
+    socket.on("mark_private_as_read", async (data, ack) => {
       const { friendId } = data;
 
       try {
@@ -187,15 +447,22 @@ export default (io) => {
           data: { isRead: true },
         });
 
-        const conversationId = `private_${Math.min(authenticatedUserId, friendId)}_${Math.max(authenticatedUserId, friendId)}`;
+        const conversationId = buildPrivateConversationId(authenticatedUserId, friendId);
         io.to(conversationId).emit("private_messages_read", {
           userId: friendId,
+          friendId: authenticatedUserId,
         });
+
+        ack?.({ success: true });
 
         console.log(`用戶 ${authenticatedUserId} 標記來自 ${friendId} 的消息為已讀`);
       } catch (error) {
         console.error("標記已讀失敗:", error);
-        socket.emit("error", { message: "標記失敗" });
+        if (ack) {
+          ack({ success: false, message: "標記失敗" });
+        } else {
+          socket.emit("error", { message: "標記失敗" });
+        }
       }
     });
 

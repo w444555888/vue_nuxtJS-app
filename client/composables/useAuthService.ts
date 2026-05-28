@@ -58,6 +58,9 @@ export const useAuthService = () => {
 
   // 登出
   const logout = () => {
+    const socket = useSocket()
+    socket.disconnectSocket()
+    
     authStore.clearAuth()
     router.push('/login')
   }

@@ -73,6 +73,7 @@ interface Friend {
 
 interface Message {
   id: number
+  seq?: number
   content: string
   senderId: number
   senderName: string
@@ -98,6 +99,53 @@ const socket = useSocket()
 const messages = ref<Message[]>([])
 const messageContent = ref('')
 let messageListener: ((data: any) => void) | null = null
+let privateMissedMessagesListener: ((data: any[]) => void) | null = null
+let connectListener: (() => void) | null = null
+const messageIdSet = ref<Set<number>>(new Set())
+
+const getLastSeq = () => {
+  return messages.value.reduce((maxSeq, item) => {
+    const seqValue = Number(item.seq ?? item.id ?? 0)
+    return seqValue > maxSeq ? seqValue : maxSeq
+  }, 0)
+}
+
+const applyPrivateMessage = (data: any) => {
+  if (
+    !(
+      (data.senderId === props.friend.id && data.receiverId === props.currentUserId) ||
+      (data.senderId === props.currentUserId && data.receiverId === props.friend.id)
+    )
+  ) {
+    return
+  }
+
+  const messageId = Number(data?.id)
+  if (!Number.isInteger(messageId)) {
+    return
+  }
+
+  if (messageIdSet.value.has(messageId)) {
+    return
+  }
+
+  messageIdSet.value.add(messageId)
+  messages.value.push({
+    id: messageId,
+    seq: Number(data?.seq || messageId),
+    content: data.content,
+    senderId: data.senderId,
+    senderName: data.senderName,
+    senderAvatar: data.senderAvatar,
+    receiverId: data.receiverId,
+    isRead: data.isRead,
+    createdAt: data.createdAt
+  })
+}
+
+const joinPrivateWithRecovery = () => {
+  socket.joinPrivateChatWithSeq(props.currentUserId, props.friend.id, getLastSeq())
+}
 
 const formatTime = (timestamp: string) => {
   return dayjs(timestamp).format('YYYY-MM-DD HH:mm')
@@ -108,6 +156,18 @@ const closeChat = () => {
     socket.offReceivePrivateMessage(messageListener)
     messageListener = null
   }
+
+  if (privateMissedMessagesListener) {
+    socket.offPrivateMissedMessages(privateMissedMessagesListener)
+    privateMissedMessagesListener = null
+  }
+
+  if (connectListener) {
+    socket.offConnect(connectListener)
+    connectListener = null
+  }
+
+  socket.leavePrivateChat(props.friend.id)
   emit('close')
 }
 
@@ -117,13 +177,23 @@ const sendMessage = async () => {
     return
   }
 
-  const content = messageContent.value.trim()
+  try {
+    const content = messageContent.value.trim()
 
-  // 通過 Socket 發送，後端統一寫入資料庫與廣播
-  socket.sendPrivateMessage(props.currentUserId, props.friend.id, content)
+    // 通過 Socket 發送，後端統一寫入資料庫與廣播
+    const result = await socket.sendPrivateMessage(props.currentUserId, props.friend.id, content)
 
-  messageContent.value = ''
-  emit('messageSent')
+    if (!result?.success) {
+      message.error(result?.message || '發送失敗')
+      return
+    }
+
+    messageContent.value = ''
+    emit('messageSent')
+  } catch (error) {
+    console.error('私聊消息發送失敗:', error)
+    message.error('發送失敗，請稍後再試')
+  }
 }
 
 const setupMessageListener = () => {
@@ -134,21 +204,7 @@ const setupMessageListener = () => {
 
   // 創建新監聽器
   messageListener = (data: any) => {
-    if (
-      (data.senderId === props.friend.id && data.receiverId === props.currentUserId) ||
-      (data.senderId === props.currentUserId && data.receiverId === props.friend.id)
-    ) {
-      messages.value.push({
-        id: data.id,
-        content: data.content,
-        senderId: data.senderId,
-        senderName: data.senderName,
-        senderAvatar: data.senderAvatar,
-        receiverId: data.receiverId,
-        isRead: data.isRead,
-        createdAt: data.createdAt
-      })
-    }
+    applyPrivateMessage(data)
   }
 
   socket.onReceivePrivateMessage(messageListener)
@@ -157,10 +213,12 @@ const setupMessageListener = () => {
 const loadMessages = async () => {
   const result = await chatService.fetchPrivateMessages(props.friend.id)
   if (result.success && result.data) {
-    messages.value = result.data.messages
+    const sortedMessages = [...(result.data.messages || [])].sort((a: any, b: any) => (a.id || 0) - (b.id || 0))
+    messages.value = sortedMessages.map((item: any) => ({ ...item, seq: item.id }))
+    messageIdSet.value = new Set(messages.value.map((item) => item.id))
 
     // 加入私聊 Socket 房間
-    socket.joinPrivateChat(props.currentUserId, props.friend.id)
+    joinPrivateWithRecovery()
 
     // 標記消息為已讀
     await chatService.markPrivateAsRead(props.friend.id)
@@ -177,21 +235,52 @@ const loadMessages = async () => {
 // 監聽好友變化時重新加載消息
 watch(
   () => props.friend.id,
-  () => {
+  (newFriendId, oldFriendId) => {
+    if (oldFriendId) {
+      socket.leavePrivateChat(oldFriendId)
+    }
+
     messages.value = []
+    messageIdSet.value = new Set()
     messageContent.value = ''
     loadMessages()
   }
 )
 
 onMounted(() => {
+  privateMissedMessagesListener = (events: any[]) => {
+    if (!Array.isArray(events)) {
+      return
+    }
+
+    events.forEach((event) => applyPrivateMessage(event))
+  }
+
+  connectListener = () => {
+    joinPrivateWithRecovery()
+  }
+
+  socket.onPrivateMissedMessages(privateMissedMessagesListener)
+  socket.onConnect(connectListener)
   loadMessages()
 })
 
 onUnmounted(() => {
+  socket.leavePrivateChat(props.friend.id)
+
   if (messageListener) {
     socket.offReceivePrivateMessage(messageListener)
     messageListener = null
+  }
+
+  if (privateMissedMessagesListener) {
+    socket.offPrivateMissedMessages(privateMissedMessagesListener)
+    privateMissedMessagesListener = null
+  }
+
+  if (connectListener) {
+    socket.offConnect(connectListener)
+    connectListener = null
   }
 })
 </script>

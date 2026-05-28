@@ -132,6 +132,8 @@ import { useAuthStore } from '~/stores/auth'
 
 interface Message {
   id: number
+  seq?: number
+  roomId?: number
   content: string
   userId: number
   username: string
@@ -183,9 +185,104 @@ const contextMenu = ref({
 })
 
 const chatService = useChatService()
-const { initSocket, joinRoom, sendMessage: socketSendMessage, onReceiveMessage, offReceiveMessage } = useSocket()
+const {
+  initSocket,
+  joinRoom,
+  leaveRoom,
+  sendMessage: socketSendMessage,
+  updateMessage: socketUpdateMessage,
+  deleteMessage: socketDeleteMessage,
+  onReceiveMessage,
+  onRoomMissedMessages,
+  onMessageUpdated,
+  onMessageDeleted,
+  onConnect,
+  offReceiveMessage,
+  offRoomMissedMessages,
+  offMessageUpdated,
+  offMessageDeleted,
+  offConnect
+} = useSocket()
 const authStore = useAuthStore()
 let roomMessageListener: ((data: any) => void) | null = null
+let roomMissedMessagesListener: ((data: any[]) => void) | null = null
+let messageUpdatedListener: ((data: any) => void) | null = null
+let messageDeletedListener: ((data: any) => void) | null = null
+let connectListener: (() => void) | null = null
+const joinedRoomId = ref<number | null>(null)
+const messageIdSet = ref<Set<number>>(new Set())
+
+const getLastSeq = () => {
+  return messages.value.reduce((maxSeq, item) => {
+    const seqValue = Number(item.seq ?? item.id ?? 0)
+    return seqValue > maxSeq ? seqValue : maxSeq
+  }, 0)
+}
+
+const applyCreatedMessage = (data: any) => {
+  if (data?.roomId !== props.room.id) {
+    return
+  }
+
+  const messageId = Number(data?.id)
+  if (!Number.isInteger(messageId)) {
+    return
+  }
+
+  if (messageIdSet.value.has(messageId)) {
+    return
+  }
+
+  const newMessage: Message = {
+    id: messageId,
+    seq: Number(data?.seq || messageId),
+    roomId: Number(data?.roomId || props.room.id),
+    content: data.content,
+    userId: data.userId,
+    username: data.username,
+    avatar: data.avatar,
+    createdAt: data.createdAt || new Date().toISOString()
+  }
+
+  messageIdSet.value.add(messageId)
+  messages.value.push(newMessage)
+  nextTick(() => scrollToBottom())
+}
+
+const applyUpdatedMessage = (data: any) => {
+  if (data?.roomId !== props.room.id) {
+    return
+  }
+
+  const target = messages.value.find((item) => item.id === data.id)
+  if (!target) {
+    return
+  }
+
+  target.content = data.content
+  if (data.seq) {
+    target.seq = data.seq
+  }
+}
+
+const applyDeletedMessage = (data: any) => {
+  if (data?.roomId !== props.room.id) {
+    return
+  }
+
+  const messageId = Number(data?.id)
+  messages.value = messages.value.filter((item) => item.id !== messageId)
+  messageIdSet.value.delete(messageId)
+}
+
+const joinRoomWithRecovery = () => {
+  if (!authStore.user?.id) {
+    return
+  }
+
+  joinRoom(authStore.user.id, props.room.id, getLastSeq())
+  joinedRoomId.value = props.room.id
+}
 
 // 加載消息
 const loadMessages = async () => {
@@ -193,7 +290,13 @@ const loadMessages = async () => {
     isLoading.value = true
     const result = await chatService.fetchMessages(props.room.id)
     if (result.success) {
-      messages.value = result.data
+      const sortedMessages = [...(result.data || [])].sort((a: any, b: any) => (a.id || 0) - (b.id || 0))
+      messages.value = sortedMessages.map((item: any) => ({
+        ...item,
+        seq: item.id,
+        roomId: item.roomId || props.room.id
+      }))
+      messageIdSet.value = new Set(messages.value.map((item) => item.id))
       // 自動滾動到最底部
       await nextTick()
       scrollToBottom()
@@ -211,9 +314,19 @@ const handleSendMessage = async () => {
     return
   }
 
+  if (!authStore.user?.id) {
+    message.error('尚未登入，無法發送消息')
+    return
+  }
+
   try {
     // 使用 WebSocket 發送消息
-    socketSendMessage(authStore.user?.id, props.room.id, inputMessage.value)
+    const result = await socketSendMessage(authStore.user.id, props.room.id, inputMessage.value)
+    if (!result?.success) {
+      message.error(result?.message || '發送失敗')
+      return
+    }
+
     inputMessage.value = '' // 清空輸入框
     emit('messageSent')
   } catch (error) {
@@ -274,19 +387,13 @@ const submitEdit = async () => {
   }
 
   try {
-    const result = await chatService.editMessage(
+    const result = await socketUpdateMessage(
       props.room.id,
       editingMessage.value.id,
       editingContent.value
     )
     
     if (result.success) {
-      // 更新本地消息
-      const targetMessage = messages.value.find(m => m.id === editingMessage.value?.id)
-      if (targetMessage) {
-        targetMessage.content = editingContent.value
-      }
-      
       message.success('消息已更新')
       showEditModal.value = false
       editingMessage.value = null
@@ -305,14 +412,12 @@ const deleteMessage = async () => {
   if (!contextMenu.value.message) return
   
   try {
-    const result = await chatService.deleteMessage(
+    const result = await socketDeleteMessage(
       props.room.id,
       contextMenu.value.message.id
     )
     
     if (result.success) {
-      // 從本地消息中刪除
-      messages.value = messages.value.filter(m => m.id !== contextMenu.value.message?.id)
       message.success('消息已收回')
     } else {
       message.error(result.message || '收回消息失敗')
@@ -329,30 +434,42 @@ const deleteMessage = async () => {
 onMounted(async () => {
   // 初始化 Socket 連接
   initSocket()
+
+  roomMessageListener = (data: any) => {
+    applyCreatedMessage(data)
+  }
+
+  roomMissedMessagesListener = (events: any[]) => {
+    if (!Array.isArray(events)) {
+      return
+    }
+
+    events.forEach((item) => applyCreatedMessage(item))
+  }
+
+  messageUpdatedListener = (data: any) => {
+    applyUpdatedMessage(data)
+  }
+
+  messageDeletedListener = (data: any) => {
+    applyDeletedMessage(data)
+  }
+
+  connectListener = () => {
+    joinRoomWithRecovery()
+  }
+
+  onReceiveMessage(roomMessageListener)
+  onRoomMissedMessages(roomMissedMessagesListener)
+  onMessageUpdated(messageUpdatedListener)
+  onMessageDeleted(messageDeletedListener)
+  onConnect(connectListener)
   
   // 加載歷史消息
   await loadMessages()
   
   // 加入聊天室
-  if (authStore.user?.id) {
-    joinRoom(authStore.user.id, props.room.id)
-  }
-  
-  // 監聽實時消息
-  roomMessageListener = (data: any) => {
-    const newMessage: Message = {
-      id: data.id || Date.now(),
-      content: data.content,
-      userId: data.userId,
-      username: data.username,
-      avatar: data.avatar,
-      createdAt: data.createdAt || new Date().toISOString()
-    }
-    messages.value.push(newMessage)
-    nextTick(() => scrollToBottom())
-  }
-
-  onReceiveMessage(roomMessageListener)
+  joinRoomWithRecovery()
 })
 
 // 每次更新後自動滾動到底部
@@ -362,19 +479,47 @@ onUpdated(() => {
 
 // 組件卸載時清理 Socket
 onUnmounted(() => {
+  if (joinedRoomId.value) {
+    leaveRoom(joinedRoomId.value)
+  }
+
   if (roomMessageListener) {
     offReceiveMessage(roomMessageListener)
     roomMessageListener = null
   }
+
+  if (roomMissedMessagesListener) {
+    offRoomMissedMessages(roomMissedMessagesListener)
+    roomMissedMessagesListener = null
+  }
+
+  if (messageUpdatedListener) {
+    offMessageUpdated(messageUpdatedListener)
+    messageUpdatedListener = null
+  }
+
+  if (messageDeletedListener) {
+    offMessageDeleted(messageDeletedListener)
+    messageDeletedListener = null
+  }
+
+  if (connectListener) {
+    offConnect(connectListener)
+    connectListener = null
+  }
 })
 
 // 監控房間變化，重新加載消息
-watch(() => props.room.id, () => {
-  loadMessages()
-  // 重新加入新房間
-  if (authStore.user?.id) {
-    joinRoom(authStore.user.id, props.room.id)
+watch(() => props.room.id, async (newRoomId, oldRoomId) => {
+  if (oldRoomId) {
+    leaveRoom(oldRoomId)
   }
+
+  joinedRoomId.value = null
+  messageIdSet.value = new Set()
+  messages.value = []
+  await loadMessages()
+  joinRoomWithRecovery()
 }, { immediate: false })
 </script>
 
