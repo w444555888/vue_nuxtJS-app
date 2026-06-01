@@ -22,6 +22,11 @@ const io = new SocketIO(server, {
 
 app.set("io", io);
 
+io.engine.on("connection_error", (err) => {
+  console.error(`[WS 連線異常] ${err.message} (code: ${err.code})`);
+  console.error(`請求: ${err.req?.url}, IP: ${err.req?.socket?.remoteAddress}`);
+});
+
 app.use(express.json());
 app.use(cors());
 

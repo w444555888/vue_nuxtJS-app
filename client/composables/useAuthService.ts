@@ -3,7 +3,7 @@ export const useAuthService = () => {
   const authStore = useAuthStore()
   const router = useRouter()
 
-  // 注册
+  // 註冊
   const register = async (email: string, username: string, password: string) => {
     try {
       authStore.setLoading(true)

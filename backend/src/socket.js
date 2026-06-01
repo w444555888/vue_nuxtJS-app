@@ -105,14 +105,12 @@ export default (io) => {
         }
       }
 
-      const roomMembers = await io.in(`room_${roomId}`).fetchSockets();
-      if (roomMembers.length === 1) {
-        io.to(`room_${roomId}`).emit("user_joined", {
-          userId: authenticatedUserId,
-          roomId,
-          message: `使用者 ${authenticatedUserId} 進入了聊天室`,
-        });
-      }
+      // 廣播給房間內的所有人：有新用戶加入
+      io.to(`room_${roomId}`).emit("user_joined", {
+        userId: authenticatedUserId,
+        roomId,
+        message: `使用者 ${authenticatedUserId} 進入了聊天室`,
+      });
 
       console.log(`使用者 ${authenticatedUserId} 加入聊天室 ${roomId}`);
     });

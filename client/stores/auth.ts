@@ -8,7 +8,7 @@ export const useAuthStore = defineStore('auth', () => {
   const isAuthenticated = computed(() => !!token.value)
   const isLoading = ref(false)
 
-  // 初始化：从本地存储读取
+  // 初始化：從 localStorage 加載認證狀態
   const initAuth = () => {
     try {
       const storedToken = getFromStorage('auth_token')

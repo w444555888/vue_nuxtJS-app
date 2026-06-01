@@ -4,8 +4,32 @@ import { io, Socket } from 'socket.io-client'
 const socketRef = ref<Socket | null>(null)
 const isConnectedRef = ref(false)
 let lastTokenRef: string | null = null
+let isHandlingWsAuthFailure = false
 
 const DEFAULT_ACK_TIMEOUT_MS = 8000
+
+const getConnectedSocket = () => {
+  if (socketRef.value && socketRef.value.connected) {
+    return socketRef.value
+  }
+  return null
+}
+
+const emitIfConnected = (event: string, payload: any, options?: { volatile?: boolean }) => {
+  const socket = getConnectedSocket()
+  if (!socket) {
+    console.warn(`[Socket] 尚未連線，略過事件: ${event}`)
+    return false
+  }
+
+  if (options?.volatile) {
+    socket.volatile.emit(event, payload)
+    return true
+  }
+
+  socket.emit(event, payload)
+  return true
+}
 
 /**
  * 封裝一個帶有 ACK 超時機制的 emit 函數，確保在指定時間內收到服務器的回應，否則視為失敗。
@@ -16,7 +40,8 @@ const DEFAULT_ACK_TIMEOUT_MS = 8000
 */
 const emitWithAck = <T = any>(event: string, payload: any, timeoutMs = DEFAULT_ACK_TIMEOUT_MS): Promise<T> => {
   return new Promise((resolve, reject) => {
-    if (!socketRef.value) {
+    const socket = getConnectedSocket()
+    if (!socket) {
       reject(new Error('Socket 尚未連接'))
       return
     }
@@ -29,7 +54,7 @@ const emitWithAck = <T = any>(event: string, payload: any, timeoutMs = DEFAULT_A
       }
     }, timeoutMs)
 
-    socketRef.value.emit(event, payload, (response: T) => {
+    socket.emit(event, payload, (response: T) => {
       if (finished) {
         return
       }
@@ -44,6 +69,7 @@ const emitWithAck = <T = any>(event: string, payload: any, timeoutMs = DEFAULT_A
 export const useSocket = () => {
   const authStore = useAuthStore()
   const config = useRuntimeConfig()
+  const router = useRouter()
 
   const socketUrl = config.public.socketUrl || 'http://127.0.0.1:3001'
 
@@ -78,16 +104,76 @@ export const useSocket = () => {
 
     socketRef.value.on('connect', () => {
       isConnectedRef.value = true
-      console.log('Socket 已連接')
+      console.log(`Socket 已連接 (id=${socketRef.value?.id})`)
+
+      const engine = socketRef.value?.io.engine
+      if (engine) {
+        console.log(`[Socket] transport=${engine.transport.name}`)
+        engine.once('upgrade', () => {
+          console.log(`[Socket] transport 升級為 ${engine.transport.name}`)
+        })
+        engine.once('close', (reason: string) => {
+          console.warn(`[Socket] 底層連線關閉: ${reason}`)
+        })
+      }
     })
 
-    socketRef.value.on('disconnect', () => {
+    socketRef.value.on('connect_error', (error: any) => {
       isConnectedRef.value = false
-      console.log('Socket 已斷開')
+      console.error('Socket 連線失敗(connect_error):', error?.message || error)
+
+      // 後端在握手中間件拒絕連線（token 缺失/過期)，走與 HTTP 401 一致的登出流程。
+      const errorMessage = String(error?.message || '')
+      if (errorMessage.includes('未授權')) {
+        console.warn('[Socket] 驗證失敗，將清除登入狀態並導向登入頁')
+
+        if (socketRef.value) {
+          socketRef.value.disconnect()
+          socketRef.value = null
+        }
+
+        if (!isHandlingWsAuthFailure) {
+          isHandlingWsAuthFailure = true
+          authStore.clearAuth()
+
+          if (router.currentRoute.value.path !== '/login') {
+            router.push('/login')
+          }
+
+          setTimeout(() => {
+            isHandlingWsAuthFailure = false
+          }, 300)
+        }
+      }
+    })
+
+    socketRef.value.on('disconnect', (reason: string) => {
+      isConnectedRef.value = false
+      console.log(`Socket 已斷開，原因: ${reason}`)
+
+      if (reason === 'io server disconnect') {
+        console.warn('[Socket] 伺服器主動斷線，如需重連請手動呼叫 initSocket/socket.connect()')
+      }
     })
 
     socketRef.value.on('error', (error: any) => {
       console.error('Socket 錯誤:', error)
+    })
+
+    socketRef.value.io.on('reconnect_attempt', (attempt: number) => {
+      console.warn(`[Socket] 嘗試重連 (${attempt})`)
+    })
+
+    socketRef.value.io.on('reconnect', (attempt: number) => {
+      console.log(`[Socket] 重連成功 (attempt=${attempt})`)
+    })
+
+    socketRef.value.io.on('reconnect_error', (error: any) => {
+      console.error('[Socket] 重連失敗:', error?.message || error)
+    })
+
+    socketRef.value.io.on('reconnect_failed', () => {
+      console.error('[Socket] 已達重連上限，停止重連')
     })
   }
 
@@ -102,16 +188,12 @@ export const useSocket = () => {
 
   // 加入聊天室
   const joinRoom = (userId: number, roomId: number, lastSeq: number = 0) => {
-    if (socketRef.value) {
-      socketRef.value.emit('join_room', { userId, roomId, lastSeq })
-    }
+    emitIfConnected('join_room', { userId, roomId, lastSeq })
   }
 
   // 離開聊天室
   const leaveRoom = (roomId: number) => {
-    if (socketRef.value) {
-      socketRef.value.emit('leave_room', { roomId })
-    }
+    emitIfConnected('leave_room', { roomId })
   }
 
   // 發送消息（ACK）
@@ -234,28 +316,25 @@ export const useSocket = () => {
 
   // 設置用戶ID（連接時調用）
   const setUserId = (userId: number) => {
-    if (socketRef.value) {
-      socketRef.value.emit('set_user_id', userId)
-    }
+    emitIfConnected('set_user_id', userId)
   }
 
   // 加入私聊對話
   const joinPrivateChat = (userId: number, friendId: number) => {
-    if (socketRef.value) {
-      socketRef.value.emit('join_private_chat', { userId, friendId })
-    }
+    emitIfConnected('join_private_chat', { userId, friendId })
   }
 
   const joinPrivateChatWithSeq = (userId: number, friendId: number, lastSeq: number = 0) => {
-    if (socketRef.value) {
-      socketRef.value.emit('join_private_chat', { userId, friendId, lastSeq })
-    }
+    emitIfConnected('join_private_chat', { userId, friendId, lastSeq })
   }
 
   const leavePrivateChat = (friendId: number) => {
-    if (socketRef.value) {
-      socketRef.value.emit('leave_private_chat', { friendId })
-    }
+    emitIfConnected('leave_private_chat', { friendId })
+  }
+
+  // 針對非關鍵即時事件使用（例如輸入中狀態），斷線時不緩衝。
+  const emitVolatile = (event: string, payload: any) => {
+    return emitIfConnected(event, payload, { volatile: true })
   }
 
   // 發送私聊消息（ACK）
@@ -366,6 +445,7 @@ export const useSocket = () => {
     joinPrivateChat,
     joinPrivateChatWithSeq,
     leavePrivateChat,
+    emitVolatile,
     sendPrivateMessage,
     markPrivateAsRead,
     onReceivePrivateMessage,
