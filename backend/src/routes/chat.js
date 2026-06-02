@@ -14,6 +14,8 @@ import {
   getPrivateConversations,
   getPrivateMessages,
   sendPrivateMessage,
+  updatePrivateMessage,
+  deletePrivateMessage,
   markPrivateMessagesRead,
 } from "../services/chat.js";
 
@@ -223,6 +225,59 @@ router.post("/private/:friendId/messages", verifyToken, async (req, res) => {
     return successResponse(res, message, "消息已發送", 201);
   } catch (error) {
     console.error("發送私聊失敗:", error);
+    return errorResponse(res, error, error.status || 500);
+  }
+});
+
+router.patch("/private/:friendId/messages/:messageId", verifyToken, async (req, res) => {
+  try {
+    const friendId = parseInt(req.params.friendId, 10);
+    const messageId = parseInt(req.params.messageId, 10);
+    const { content } = req.body;
+    const updatedMessage = await updatePrivateMessage(req.user.id, friendId, messageId, content);
+
+    const io = req.app.get("io");
+    const conversationId = `private_${Math.min(req.user.id, friendId)}_${Math.max(req.user.id, friendId)}`;
+    io.to(conversationId).emit("private_message_updated", {
+      id: updatedMessage.id,
+      seq: updatedMessage.id,
+      content: updatedMessage.content,
+      senderId: updatedMessage.sender.id,
+      senderName: updatedMessage.sender.username,
+      senderAvatar: updatedMessage.sender.avatar,
+      receiverId: updatedMessage.receiver.id,
+      isRead: updatedMessage.isRead,
+      createdAt: updatedMessage.createdAt,
+      eventType: "private_message_updated",
+    });
+
+    return successResponse(res, updatedMessage, "私聊消息已更新", 200);
+  } catch (error) {
+    console.error("編輯私聊消息失敗:", error);
+    return errorResponse(res, error, error.status || 500);
+  }
+});
+
+router.delete("/private/:friendId/messages/:messageId", verifyToken, async (req, res) => {
+  try {
+    const friendId = parseInt(req.params.friendId, 10);
+    const messageId = parseInt(req.params.messageId, 10);
+    const deletedMessage = await deletePrivateMessage(req.user.id, friendId, messageId);
+
+    const io = req.app.get("io");
+    const conversationId = `private_${Math.min(req.user.id, friendId)}_${Math.max(req.user.id, friendId)}`;
+    io.to(conversationId).emit("private_message_deleted", {
+      id: messageId,
+      seq: messageId,
+      senderId: deletedMessage.senderId,
+      receiverId: deletedMessage.receiverId,
+      deletedBy: req.user.id,
+      eventType: "private_message_deleted",
+    });
+
+    return successResponse(res, deletedMessage, "私聊消息已刪除", 200);
+  } catch (error) {
+    console.error("刪除私聊消息失敗:", error);
     return errorResponse(res, error, error.status || 500);
   }
 });

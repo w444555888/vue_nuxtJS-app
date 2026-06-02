@@ -409,6 +409,75 @@ export const sendPrivateMessage = async (userId, friendId, content) => {
   });
 };
 
+export const updatePrivateMessage = async (userId, friendId, messageId, content) => {
+  if (!content || !content.trim()) {
+    throw createError("消息內容不能為空", 400);
+  }
+
+  const message = await prisma.privateMessage.findUnique({
+    where: { id: messageId },
+  });
+
+  if (!message) {
+    throw createError("消息不存在", 404);
+  }
+
+  const friendIdNum = Number(friendId);
+  const isSameConversation =
+    (message.senderId === userId && message.receiverId === friendIdNum) ||
+    (message.senderId === friendIdNum && message.receiverId === userId);
+
+  if (!isSameConversation) {
+    throw createError("消息不屬於此對話", 400);
+  }
+
+  if (message.senderId !== userId) {
+    throw createError("只能編輯自己發送的消息", 403);
+  }
+
+  return prisma.privateMessage.update({
+    where: { id: messageId },
+    data: {
+      content: content.trim(),
+    },
+    include: {
+      sender: {
+        select: { id: true, username: true, avatar: true },
+      },
+      receiver: {
+        select: { id: true, username: true, avatar: true },
+      },
+    },
+  });
+};
+
+export const deletePrivateMessage = async (userId, friendId, messageId) => {
+  const message = await prisma.privateMessage.findUnique({
+    where: { id: messageId },
+  });
+
+  if (!message) {
+    throw createError("消息不存在", 404);
+  }
+
+  const friendIdNum = Number(friendId);
+  const isSameConversation =
+    (message.senderId === userId && message.receiverId === friendIdNum) ||
+    (message.senderId === friendIdNum && message.receiverId === userId);
+
+  if (!isSameConversation) {
+    throw createError("消息不屬於此對話", 400);
+  }
+
+  if (message.senderId !== userId) {
+    throw createError("只能刪除自己發送的消息", 403);
+  }
+
+  return prisma.privateMessage.delete({
+    where: { id: messageId },
+  });
+};
+
 export const markPrivateMessagesRead = async (userId, friendId) => {
   return prisma.privateMessage.updateMany({
     where: {

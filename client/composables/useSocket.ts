@@ -342,6 +342,16 @@ export const useSocket = () => {
     return emitWithAck<{ success: boolean; message?: string; event?: any }>('send_private_message', { userId, friendId, content })
   }
 
+  // 編輯私聊消息（ACK）
+  const updatePrivateMessage = async (userId: number, friendId: number, messageId: number, content: string) => {
+    return emitWithAck<{ success: boolean; message?: string; event?: any }>('update_private_message', { userId, friendId, messageId, content })
+  }
+
+  // 刪除私聊消息（ACK）
+  const deletePrivateMessage = async (userId: number, friendId: number, messageId: number) => {
+    return emitWithAck<{ success: boolean; message?: string; event?: any }>('delete_private_message', { userId, friendId, messageId })
+  }
+
   // 標記私聊為已讀（ACK）
   const markPrivateAsRead = async (userId: number, friendId: number) => {
     return emitWithAck<{ success: boolean; message?: string }>('mark_private_as_read', { userId, friendId })
@@ -371,6 +381,18 @@ export const useSocket = () => {
   const onPrivateMissedMessages = (callback: (data: any[]) => void) => {
     if (socketRef.value) {
       socketRef.value.on('private_missed_messages', callback)
+    }
+  }
+
+  const onPrivateMessageUpdated = (callback: (data: any) => void) => {
+    if (socketRef.value) {
+      socketRef.value.on('private_message_updated', callback)
+    }
+  }
+
+  const onPrivateMessageDeleted = (callback: (data: any) => void) => {
+    if (socketRef.value) {
+      socketRef.value.on('private_message_deleted', callback)
     }
   }
 
@@ -419,6 +441,28 @@ export const useSocket = () => {
     }
   }
 
+  const offPrivateMessageUpdated = (callback?: (data: any) => void) => {
+    if (socketRef.value) {
+      if (callback) {
+        socketRef.value.off('private_message_updated', callback)
+        return
+      }
+
+      socketRef.value.off('private_message_updated')
+    }
+  }
+
+  const offPrivateMessageDeleted = (callback?: (data: any) => void) => {
+    if (socketRef.value) {
+      if (callback) {
+        socketRef.value.off('private_message_deleted', callback)
+        return
+      }
+
+      socketRef.value.off('private_message_deleted')
+    }
+  }
+
   return {
     socket: socketRef,
     isConnected: isConnectedRef,
@@ -447,14 +491,20 @@ export const useSocket = () => {
     leavePrivateChat,
     emitVolatile,
     sendPrivateMessage,
+    updatePrivateMessage,
+    deletePrivateMessage,
     markPrivateAsRead,
     onReceivePrivateMessage,
     onPrivateMessageReceived,
     onPrivateMessagesRead,
     onPrivateMissedMessages,
+    onPrivateMessageUpdated,
+    onPrivateMessageDeleted,
     offReceivePrivateMessage,
     offPrivateMessageReceived,
     offPrivateMessagesRead,
-    offPrivateMissedMessages
+    offPrivateMissedMessages,
+    offPrivateMessageUpdated,
+    offPrivateMessageDeleted
   }
 }

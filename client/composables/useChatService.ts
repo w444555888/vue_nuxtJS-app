@@ -198,6 +198,28 @@ export const useChatService = () => {
     }
   }
 
+  // 編輯私聊消息
+  const editPrivateMessage = async (friendId: number, messageId: number, content: string) => {
+    try {
+      const result = await patch(`/api/chat/private/${friendId}/messages/${messageId}`, { content })
+      return { success: result.success, data: result.data, message: result.message }
+    } catch (error: any) {
+      console.error('編輯私聊失敗:', error)
+      return { success: false, error: error.message, message: error.message }
+    }
+  }
+
+  // 刪除私聊消息
+  const deletePrivateMessage = async (friendId: number, messageId: number) => {
+    try {
+      const result = await deleteRequest(`/api/chat/private/${friendId}/messages/${messageId}`)
+      return { success: result.success, data: result.data, message: result.message }
+    } catch (error: any) {
+      console.error('刪除私聊失敗:', error)
+      return { success: false, error: error.message, message: error.message }
+    }
+  }
+
   // 標記私聊為已讀
   const markPrivateAsRead = async (friendId: number) => {
     try {
@@ -222,6 +244,8 @@ export const useChatService = () => {
     fetchPrivateConversations,
     fetchPrivateMessages,
     sendPrivateMessage,
+    editPrivateMessage,
+    deletePrivateMessage,
     markPrivateAsRead
   }
 }

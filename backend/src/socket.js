@@ -431,6 +431,138 @@ export default (io) => {
       }
     });
 
+    socket.on("update_private_message", async (data, ack) => {
+      const { friendId, messageId, content } = data || {};
+
+      if (!friendId || !messageId) {
+        ack?.({ success: false, message: "缺少必要參數" });
+        return;
+      }
+
+      if (!content || !String(content).trim()) {
+        ack?.({ success: false, message: "消息內容不能為空" });
+        return;
+      }
+
+      try {
+        const existingMessage = await prisma.privateMessage.findUnique({
+          where: { id: messageId },
+        });
+
+        if (!existingMessage) {
+          ack?.({ success: false, message: "消息不存在" });
+          return;
+        }
+
+        const friendIdNum = Number(friendId);
+        const isSameConversation =
+          (existingMessage.senderId === authenticatedUserId &&
+            existingMessage.receiverId === friendIdNum) ||
+          (existingMessage.senderId === friendIdNum &&
+            existingMessage.receiverId === authenticatedUserId);
+
+        if (!isSameConversation) {
+          ack?.({ success: false, message: "消息不屬於此對話" });
+          return;
+        }
+
+        if (existingMessage.senderId !== authenticatedUserId) {
+          ack?.({ success: false, message: "只能編輯自己發送的消息" });
+          return;
+        }
+
+        const updatedMessage = await prisma.privateMessage.update({
+          where: { id: messageId },
+          data: { content: String(content).trim() },
+          include: {
+            sender: {
+              select: { id: true, username: true, avatar: true },
+            },
+            receiver: {
+              select: { id: true, username: true, avatar: true },
+            },
+          },
+        });
+
+        const conversationId = buildPrivateConversationId(authenticatedUserId, friendIdNum);
+        const event = {
+          id: updatedMessage.id,
+          seq: updatedMessage.id,
+          content: updatedMessage.content,
+          senderId: updatedMessage.sender.id,
+          senderName: updatedMessage.sender.username,
+          senderAvatar: updatedMessage.sender.avatar,
+          receiverId: updatedMessage.receiver.id,
+          isRead: updatedMessage.isRead,
+          createdAt: updatedMessage.createdAt,
+          eventType: "private_message_updated",
+        };
+
+        io.to(conversationId).emit("private_message_updated", event);
+        ack?.({ success: true, event });
+      } catch (error) {
+        console.error("私聊消息編輯失敗:", error);
+        ack?.({ success: false, message: "私聊消息編輯失敗" });
+      }
+    });
+
+    socket.on("delete_private_message", async (data, ack) => {
+      const { friendId, messageId } = data || {};
+
+      if (!friendId || !messageId) {
+        ack?.({ success: false, message: "缺少必要參數" });
+        return;
+      }
+
+      try {
+        const existingMessage = await prisma.privateMessage.findUnique({
+          where: { id: messageId },
+        });
+
+        if (!existingMessage) {
+          ack?.({ success: false, message: "消息不存在" });
+          return;
+        }
+
+        const friendIdNum = Number(friendId);
+        const isSameConversation =
+          (existingMessage.senderId === authenticatedUserId &&
+            existingMessage.receiverId === friendIdNum) ||
+          (existingMessage.senderId === friendIdNum &&
+            existingMessage.receiverId === authenticatedUserId);
+
+        if (!isSameConversation) {
+          ack?.({ success: false, message: "消息不屬於此對話" });
+          return;
+        }
+
+        if (existingMessage.senderId !== authenticatedUserId) {
+          ack?.({ success: false, message: "只能刪除自己發送的消息" });
+          return;
+        }
+
+        await prisma.privateMessage.delete({
+          where: { id: messageId },
+        });
+
+        const conversationId = buildPrivateConversationId(authenticatedUserId, friendIdNum);
+        const event = {
+          id: messageId,
+          seq: messageId,
+          senderId: existingMessage.senderId,
+          receiverId: existingMessage.receiverId,
+          deletedBy: authenticatedUserId,
+          eventType: "private_message_deleted",
+        };
+
+        io.to(conversationId).emit("private_message_deleted", event);
+        ack?.({ success: true, event });
+      } catch (error) {
+        console.error("私聊消息刪除失敗:", error);
+        ack?.({ success: false, message: "私聊消息刪除失敗" });
+      }
+    });
+
     // 標記私聊為已讀
     socket.on("mark_private_as_read", async (data, ack) => {
       const { friendId } = data;

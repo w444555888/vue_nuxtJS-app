@@ -28,6 +28,7 @@
           v-for="msg in messages" 
           :key="msg.id" 
           :class="['message-item', { own: msg.senderId === currentUserId }]"
+          @contextmenu.prevent="showContextMenu($event, msg)"
         >
           <img 
             :src="msg.senderAvatar || `https://api.dicebear.com/9.x/pixel-art-neutral/svg?scale=50&seed=${msg.senderName}`" 
@@ -44,6 +45,29 @@
         </div>
       </div>
     </div>
+
+    <!-- 右鍵菜單 -->
+    <div v-if="contextMenu.show" class="context-menu" :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }">
+      <div class="context-item" @click="openEditModal">編輯</div>
+      <div class="context-item danger" @click="removePrivateMessage">刪除</div>
+    </div>
+
+    <!-- 編輯消息模態框 -->
+    <Modal 
+      :show="showEditModal" 
+      title="編輯消息"
+      @update:show="(value) => showEditModal = value"
+    >
+      <textarea 
+        v-model="editingContent"
+        placeholder="輸入新的消息內容..."
+        class="edit-textarea"
+      ></textarea>
+      <template #actions>
+        <button @click="submitEdit" class="btn-primary">保存</button>
+        <button @click="showEditModal = false" class="btn-secondary">取消</button>
+      </template>
+    </Modal>
 
     <!-- 私聊輸入框 -->
     <div class="chat-input-area">
@@ -63,6 +87,7 @@
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import dayjs from 'dayjs'
 import { message } from 'ant-design-vue'
+import Modal from '~/components/Modal.vue'
 
 interface Friend {
   id: number
@@ -98,8 +123,19 @@ const socket = useSocket()
 
 const messages = ref<Message[]>([])
 const messageContent = ref('')
+const showEditModal = ref(false)
+const editingContent = ref('')
+const editingMessage = ref<Message | null>(null)
+const contextMenu = ref({
+  show: false,
+  x: 0,
+  y: 0,
+  message: null as Message | null
+})
 let messageListener: ((data: any) => void) | null = null
 let privateMissedMessagesListener: ((data: any[]) => void) | null = null
+let privateMessageUpdatedListener: ((data: any) => void) | null = null
+let privateMessageDeletedListener: ((data: any) => void) | null = null
 let connectListener: (() => void) | null = null
 const messageIdSet = ref<Set<number>>(new Set())
 
@@ -143,6 +179,45 @@ const applyPrivateMessage = (data: any) => {
   })
 }
 
+const isCurrentConversationEvent = (data: any) => {
+  return (
+    (data?.senderId === props.friend.id && data?.receiverId === props.currentUserId) ||
+    (data?.senderId === props.currentUserId && data?.receiverId === props.friend.id)
+  )
+}
+
+const applyUpdatedPrivateMessage = (data: any) => {
+  if (!isCurrentConversationEvent(data)) {
+    return
+  }
+
+  const target = messages.value.find((item) => item.id === data?.id)
+  if (!target) {
+    return
+  }
+
+  target.content = data.content
+}
+
+const applyDeletedPrivateMessage = (data: any) => {
+  if (!isCurrentConversationEvent(data)) {
+    return
+  }
+
+  const messageId = Number(data?.id)
+  if (!Number.isInteger(messageId)) {
+    return
+  }
+
+  const index = messages.value.findIndex((item) => item.id === messageId)
+  if (index === -1) {
+    return
+  }
+
+  messages.value.splice(index, 1)
+  messageIdSet.value.delete(messageId)
+}
+
 const joinPrivateWithRecovery = () => {
   socket.joinPrivateChatWithSeq(props.currentUserId, props.friend.id, getLastSeq())
 }
@@ -151,10 +226,50 @@ const formatTime = (timestamp: string) => {
   return dayjs(timestamp).format('YYYY-MM-DD HH:mm')
 }
 
+const showContextMenu = (event: MouseEvent, msg: Message) => {
+  if (msg.senderId !== props.currentUserId) return
+
+  contextMenu.value = {
+    show: true,
+    x: event.clientX,
+    y: event.clientY,
+    message: msg
+  }
+
+  setTimeout(() => {
+    document.addEventListener('click', hideContextMenu)
+  }, 0)
+}
+
+const hideContextMenu = () => {
+  contextMenu.value.show = false
+  document.removeEventListener('click', hideContextMenu)
+}
+
+const openEditModal = () => {
+  if (!contextMenu.value.message) return
+  editingMessage.value = contextMenu.value.message
+  editingContent.value = contextMenu.value.message.content
+  showEditModal.value = true
+  hideContextMenu()
+}
+
 const closeChat = () => {
+  hideContextMenu()
+
   if (messageListener) {
     socket.offReceivePrivateMessage(messageListener)
     messageListener = null
+  }
+
+  if (privateMessageUpdatedListener) {
+    socket.offPrivateMessageUpdated(privateMessageUpdatedListener)
+    privateMessageUpdatedListener = null
+  }
+
+  if (privateMessageDeletedListener) {
+    socket.offPrivateMessageDeleted(privateMessageDeletedListener)
+    privateMessageDeletedListener = null
   }
 
   if (privateMissedMessagesListener) {
@@ -196,10 +311,76 @@ const sendMessage = async () => {
   }
 }
 
+const submitEdit = async () => {
+  if (!editingMessage.value) {
+    return
+  }
+
+  const content = String(editingContent.value).trim()
+  if (!content) {
+    message.error('消息內容不能為空')
+    return
+  }
+
+  try {
+    const result = await socket.updatePrivateMessage(
+      props.currentUserId,
+      props.friend.id,
+      editingMessage.value.id,
+      content
+    )
+    if (!result?.success) {
+      message.error(result?.message || '編輯失敗')
+      return
+    }
+
+    message.success('消息已更新')
+    showEditModal.value = false
+    editingMessage.value = null
+    editingContent.value = ''
+  } catch (error) {
+    console.error('私聊消息編輯失敗:', error)
+    message.error('編輯失敗，請稍後再試')
+  }
+}
+
+const removePrivateMessage = async () => {
+  if (!contextMenu.value.message) {
+    return
+  }
+
+  try {
+    const result = await socket.deletePrivateMessage(
+      props.currentUserId,
+      props.friend.id,
+      contextMenu.value.message.id
+    )
+    if (!result?.success) {
+      message.error(result?.message || '刪除失敗')
+      return
+    }
+
+    message.success('消息已收回')
+  } catch (error) {
+    console.error('私聊消息刪除失敗:', error)
+    message.error('刪除失敗，請稍後再試')
+  } finally {
+    hideContextMenu()
+  }
+}
+
 const setupMessageListener = () => {
   // 先移除舊監聽器
   if (messageListener) {
     socket.offReceivePrivateMessage(messageListener)
+  }
+
+  if (privateMessageUpdatedListener) {
+    socket.offPrivateMessageUpdated(privateMessageUpdatedListener)
+  }
+
+  if (privateMessageDeletedListener) {
+    socket.offPrivateMessageDeleted(privateMessageDeletedListener)
   }
 
   // 創建新監聽器
@@ -207,7 +388,21 @@ const setupMessageListener = () => {
     applyPrivateMessage(data)
   }
 
+  privateMessageUpdatedListener = (data: any) => {
+    applyUpdatedPrivateMessage(data)
+  }
+
+  privateMessageDeletedListener = (data: any) => {
+    applyDeletedPrivateMessage(data)
+  }
+
   socket.onReceivePrivateMessage(messageListener)
+  if (privateMessageUpdatedListener) {
+    socket.onPrivateMessageUpdated(privateMessageUpdatedListener)
+  }
+  if (privateMessageDeletedListener) {
+    socket.onPrivateMessageDeleted(privateMessageDeletedListener)
+  }
 }
 
 const loadMessages = async () => {
@@ -266,6 +461,7 @@ onMounted(() => {
 })
 
 onUnmounted(() => {
+  hideContextMenu()
   socket.leavePrivateChat(props.friend.id)
 
   if (messageListener) {
@@ -276,6 +472,16 @@ onUnmounted(() => {
   if (privateMissedMessagesListener) {
     socket.offPrivateMissedMessages(privateMissedMessagesListener)
     privateMissedMessagesListener = null
+  }
+
+  if (privateMessageUpdatedListener) {
+    socket.offPrivateMessageUpdated(privateMessageUpdatedListener)
+    privateMessageUpdatedListener = null
+  }
+
+  if (privateMessageDeletedListener) {
+    socket.offPrivateMessageDeleted(privateMessageDeletedListener)
+    privateMessageDeletedListener = null
   }
 
   if (connectListener) {
@@ -488,6 +694,90 @@ onUnmounted(() => {
   font-size: 14px;
   color: #333;
   line-height: 1.5;
+}
+
+/* 右鍵菜單 */
+.context-menu {
+  position: fixed;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+  z-index: 1000;
+  min-width: 120px;
+  overflow: hidden;
+}
+
+.context-item {
+  padding: 10px 16px;
+  cursor: pointer;
+  transition: all 0.2s;
+  font-size: 14px;
+  color: #333;
+
+  &:hover {
+    background: #f5f5f5;
+    color: #667eea;
+  }
+
+  &.danger {
+    color: #ff4d4f;
+
+    &:hover {
+      background: #fff1f0;
+    }
+  }
+}
+
+/* 編輯消息 */
+.edit-textarea {
+  width: 100%;
+  padding: 12px;
+  border: 1px solid #d9d9d9;
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  resize: vertical;
+  min-height: 100px;
+  transition: all 0.2s;
+
+  &:focus {
+    outline: none;
+    border-color: #667eea;
+    box-shadow: 0 0 0 3px rgba(102, 126, 234, 0.1);
+    background: #fafbfc;
+  }
+}
+
+.btn-primary,
+.btn-secondary {
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 14px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.btn-primary {
+  background: linear-gradient(135deg, #667eea 0%, #a894c7 100%);
+  color: white;
+
+  &:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 12px rgba(102, 126, 234, 0.3);
+  }
+}
+
+.btn-secondary {
+  background: #f0f0f0;
+  color: #666;
+
+  &:hover {
+    background: #e8e8e8;
+  }
 }
 
 /* 聊天輸入框區域 */
