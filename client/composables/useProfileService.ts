@@ -16,7 +16,6 @@ export const useProfileService = () => {
   // 更新個人資料
   const updateProfile = async (
     updateData: {
-      username?: string
       email?: string
       avatar?: string
       password?: string

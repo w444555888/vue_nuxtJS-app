@@ -210,7 +210,8 @@
     >
       <div class="form-group">
         <label>使用者名</label>
-        <input v-model="userForm.username" type="text" class="form-input">
+        <input :value="userForm.username" type="text" class="form-input" disabled>
+        <small class="hint-text">使用者名建立後不可修改</small>
       </div>
       <div class="form-group">
         <label>郵箱</label>
@@ -510,7 +511,6 @@ const sendInvites = async () => {
 
 const saveUserProfile = async () => {
   const result = await profileService.updateProfile({
-    username: userForm.value.username,
     email: userForm.value.email,
     newPassword: userForm.value.newPassword || undefined
   })

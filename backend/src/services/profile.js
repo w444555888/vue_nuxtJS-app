@@ -30,47 +30,28 @@ export const getMyProfile = async (userId) => {
 export const updateMyProfile = async (userId, payload) => {
   const { username, email, avatar, password, newPassword } = payload;
 
-  if (!username && !email && !avatar && !newPassword) {
+  if (username !== undefined) {
+    throw createError("使用者名不可修改", 400);
+  }
+
+  if (!email && !avatar && !newPassword) {
     throw createError("至少需要更新一個字段", 400);
   }
 
   const updateData = {};
-  const checkQueries = [];
-
-  // 並行檢查重複的用戶名和郵箱
-  if (username) {
-    checkQueries.push(
-      prisma.user.findUnique({ 
-        where: { username },
-        select: { id: true }
-      })
-    );
-  } else {
-    checkQueries.push(null);
-  }
+  let existingEmail = null;
 
   if (email) {
-    checkQueries.push(
-      prisma.user.findUnique({ 
-        where: { email },
-        select: { id: true }
-      })
-    );
-  } else {
-    checkQueries.push(null);
-  }
-
-  const [existingUsername, existingEmail] = await Promise.all(checkQueries);
-
-  if (existingUsername && existingUsername.id !== userId) {
-    throw createError("用戶名已被使用", 400);
+    existingEmail = await prisma.user.findUnique({ 
+      where: { email },
+      select: { id: true }
+    });
   }
 
   if (existingEmail && existingEmail.id !== userId) {
     throw createError("郵箱已被使用", 400);
   }
 
-  if (username) updateData.username = username;
   if (email) updateData.email = email;
   if (avatar) updateData.avatar = avatar;
 
