@@ -28,7 +28,7 @@
           v-for="msg in messages" 
           :key="msg.id" 
           :class="['message-item', { own: msg.senderId === currentUserId }]"
-          @contextmenu.prevent="showContextMenu($event, msg)"
+          @contextmenu.prevent="(event) => showContextMenu(event, msg)"
         >
           <img 
             :src="msg.senderAvatar || `https://api.dicebear.com/9.x/pixel-art-neutral/svg?scale=50&seed=${msg.senderName}`" 

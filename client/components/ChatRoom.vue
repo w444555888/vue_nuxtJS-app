@@ -37,7 +37,7 @@
           v-for="msg in messages" 
           :key="msg.id" 
           :class="['message-item', { own: msg.userId === props.currentUserId }]"
-          @contextmenu.prevent="showContextMenu($event, msg)"
+          @contextmenu.prevent="(event) => showContextMenu(event, msg)"
         >
           <div class="message-avatar">
             <img :src="msg.avatar || `https://api.dicebear.com/9.x/pixel-art-neutral/svg?scale=50&seed=${msg.username}`" :alt="msg.username" />

@@ -47,7 +47,7 @@
             <p class="room-desc">{{ room.description || '無描述' }}</p>
             <span v-if="room.unreadCount > 0" class="badge">{{ room.unreadCount }}</span>
             
-            <!-- 房间菜单 -->
+            <!-- 群組菜單 -->
             <div v-if="openMenu?.id === room.id" class="room-menu">
               <button @click.stop="inviteFriendsToRoom(room)" class="menu-item">邀請好友</button>
               <button 
@@ -136,7 +136,7 @@
         </button>
       </div>
 
-      <!-- 個人資料面板 -->
+      <!-- 個人資料 -->
       <div v-if="rightPanelTab === 'profile'" class="panel-content">
         <div class="profile-info">
           <img :src="authStore.user?.avatar || `https://api.dicebear.com/9.x/pixel-art-neutral/svg?scale=50&seed=${authStore.user?.username}`" 
