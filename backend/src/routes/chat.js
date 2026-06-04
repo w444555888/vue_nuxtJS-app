@@ -1,6 +1,7 @@
 import express from "express";
 import { verifyToken } from "../middleware/auth.js";
 import { successResponse, errorResponse } from "../utils/responseHandler.js";
+import upload from "../middleware/upload.js";
 import {
   getUserRooms,
   createRoom,
@@ -96,8 +97,8 @@ router.post("/rooms/:roomId/invite", verifyToken, async (req, res) => {
 router.post("/rooms/:roomId/messages", verifyToken, async (req, res) => {
   try {
     const roomId = parseInt(req.params.roomId, 10);
-    const { content } = req.body;
-    const message = await sendRoomMessage(req.user.id, roomId, content);
+    const { content, imageUrl } = req.body;
+    const message = await sendRoomMessage(req.user.id, roomId, content, imageUrl);
 
     const io = req.app.get("io");
     io.to(`room_${roomId}`).emit("receive_message", {
@@ -105,6 +106,7 @@ router.post("/rooms/:roomId/messages", verifyToken, async (req, res) => {
       seq: message.id,
       roomId,
       content: message.content,
+      imageUrl: message.imageUrl,
       userId: message.user.id,
       username: message.user.username,
       avatar: message.user.avatar,
@@ -203,8 +205,8 @@ router.get("/private/:friendId", verifyToken, async (req, res) => {
 router.post("/private/:friendId/messages", verifyToken, async (req, res) => {
   try {
     const friendId = parseInt(req.params.friendId, 10);
-    const { content } = req.body;
-    const message = await sendPrivateMessage(req.user.id, friendId, content);
+    const { content, imageUrl } = req.body;
+    const message = await sendPrivateMessage(req.user.id, friendId, content, imageUrl);
 
     const io = req.app.get("io");
     const conversationId = `private_${Math.min(req.user.id, friendId)}_${Math.max(req.user.id, friendId)}`;
@@ -213,6 +215,7 @@ router.post("/private/:friendId/messages", verifyToken, async (req, res) => {
       id: message.id,
       seq: message.id,
       content: message.content,
+      imageUrl: message.imageUrl,
       senderId: message.sender.id,
       senderName: message.sender.username,
       senderAvatar: message.sender.avatar,
@@ -298,6 +301,22 @@ router.patch("/private/:friendId/mark-read", verifyToken, async (req, res) => {
   } catch (error) {
     console.error("標記已讀失敗:", error);
     return errorResponse(res, error, error.status || 500);
+  }
+});
+
+// 文件上传端点
+router.post("/upload", verifyToken, upload.single("image"), async (req, res) => {
+  try {
+    if (!req.file) {
+      return errorResponse(res, "未選擇圖片", 400);
+    }
+
+    // 返回图片的访问URL
+    const imageUrl = `/uploads/${req.file.filename}`;
+    return successResponse(res, { imageUrl }, "圖片上傳成功", 200);
+  } catch (error) {
+    console.error("上傳圖片失敗:", error);
+    return errorResponse(res, error.message || "上傳圖片失敗", 500);
   }
 });
 

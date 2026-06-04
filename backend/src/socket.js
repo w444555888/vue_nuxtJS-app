@@ -12,6 +12,7 @@ const formatRoomMessageEvent = (message) => ({
   seq: message.id,
   roomId: message.roomId,
   content: message.content,
+  imageUrl: message.imageUrl,
   userId: message.user.id,
   username: message.user.username,
   avatar: message.user.avatar,
@@ -23,6 +24,7 @@ const formatPrivateMessageEvent = (message) => ({
   id: message.id,
   seq: message.id,
   content: message.content,
+  imageUrl: message.imageUrl,
   senderId: message.sender.id,
   senderName: message.sender.username,
   senderAvatar: message.sender.avatar,
@@ -123,13 +125,13 @@ export default (io) => {
 
     // 接收消息
     socket.on("send_message", async (data, ack) => {
-      const { roomId, content } = data;
+      const { roomId, content, imageUrl } = data || {};
 
-      if (!content || !String(content).trim()) {
+      if ((!content || !String(content).trim()) && !imageUrl) {
         if (ack) {
-          ack({ success: false, message: "訊息內容不能為空" });
+          ack({ success: false, message: "訊息內容和圖片不能同時為空" });
         } else {
-          socket.emit("error", { message: "訊息內容不能為空" });
+          socket.emit("error", { message: "訊息內容和圖片不能同時為空" });
         }
         return;
       }
@@ -156,7 +158,8 @@ export default (io) => {
         // 保存到資料庫
         const message = await prisma.message.create({
           data: {
-            content: String(content).trim(),
+            content: content ? String(content).trim() : "",
+            imageUrl: imageUrl || null,
             userId: authenticatedUserId,
             roomId,
           },
@@ -342,13 +345,13 @@ export default (io) => {
 
     // 發送私聊消息
     socket.on("send_private_message", async (data, ack) => {
-      const { friendId, content } = data;
+      const { friendId, content, imageUrl } = data || {};
 
-      if (!content || !String(content).trim()) {
+      if ((!content || !String(content).trim()) && !imageUrl) {
         if (ack) {
-          ack({ success: false, message: "消息內容不能為空" });
+          ack({ success: false, message: "消息內容和圖片不能同時為空" });
         } else {
-          socket.emit("error", { message: "消息內容不能為空" });
+          socket.emit("error", { message: "消息內容和圖片不能同時為空" });
         }
         return;
       }
@@ -377,7 +380,8 @@ export default (io) => {
         // 保存到資料庫
         const message = await prisma.privateMessage.create({
           data: {
-            content: String(content).trim(),
+            content: content ? String(content).trim() : "",
+            imageUrl: imageUrl || null,
             senderId: authenticatedUserId,
             receiverId: friendId,
             isRead: false,
@@ -414,7 +418,7 @@ export default (io) => {
               senderId: authenticatedUserId,
               senderName: message.sender.username,
               senderAvatar: message.sender.avatar,
-              content: String(content).substring(0, 50), // 預覽
+              content: content ? String(content).substring(0, 50) : "[圖片]", // 預覽
               messageId: message.id,
             });
           }

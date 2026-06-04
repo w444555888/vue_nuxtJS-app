@@ -1,6 +1,17 @@
 export const useChatService = () => {
   const { get, post, patch, delete: deleteRequest } = useHttpClient()
   const chatStore = useChatStore()
+  const config = useRuntimeConfig()
+  const apiBase = config.public.apiBase || 'http://127.0.0.1:3001'
+  const uploadBase = config.public.uploadBase || apiBase
+
+  const resolveImageUrl = (imageUrl?: string | null) => {
+    if (!imageUrl) return null
+    if (/^https?:\/\//i.test(imageUrl)) {
+      return imageUrl
+    }
+    return `${uploadBase}${imageUrl}`
+  }
 
   // ==================== 群組聊天室功能 ====================
 
@@ -87,6 +98,7 @@ export const useChatService = () => {
       const formattedMessages = messages.map((msg: any) => ({
         id: msg.id,
         content: msg.content,
+        imageUrl: resolveImageUrl(msg.imageUrl),
         userId: msg.user.id,
         username: msg.user.username,
         avatar: msg.user.avatar,
@@ -171,6 +183,7 @@ export const useChatService = () => {
       const formattedMessages = messages.map((msg: any) => ({
         id: msg.id,
         content: msg.content,
+        imageUrl: resolveImageUrl(msg.imageUrl),
         senderId: msg.sender.id,
         senderName: msg.sender.username,
         senderAvatar: msg.sender.avatar,
@@ -231,6 +244,20 @@ export const useChatService = () => {
     }
   }
 
+  // 上傳圖片
+  const uploadImage = async (file: File) => {
+    try {
+      const formData = new FormData()
+      formData.append('image', file)
+      
+      const result = await post('/api/chat/upload', formData)
+      return { success: result.success, data: result.data, message: result.message }
+    } catch (error: any) {
+      console.error('上傳圖片失敗:', error)
+      return { success: false, error: error.message, message: error.message }
+    }
+  }
+
   return {
     fetchRooms,
     createRoom,
@@ -246,6 +273,7 @@ export const useChatService = () => {
     sendPrivateMessage,
     editPrivateMessage,
     deletePrivateMessage,
-    markPrivateAsRead
+    markPrivateAsRead,
+    uploadImage
   }
 }

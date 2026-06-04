@@ -197,8 +197,8 @@ export const useSocket = () => {
   }
 
   // 發送消息（ACK）
-  const sendMessage = async (userId: number, roomId: number, content: string) => {
-    return emitWithAck<{ success: boolean; message?: string; event?: any }>('send_message', { userId, roomId, content })
+  const sendMessage = async (userId: number, roomId: number, content: string, imageUrl?: string) => {
+    return emitWithAck<{ success: boolean; message?: string; event?: any }>('send_message', { userId, roomId, content, imageUrl })
   }
 
   // 編輯消息（ACK）
@@ -338,8 +338,8 @@ export const useSocket = () => {
   }
 
   // 發送私聊消息（ACK）
-  const sendPrivateMessage = async (userId: number, friendId: number, content: string) => {
-    return emitWithAck<{ success: boolean; message?: string; event?: any }>('send_private_message', { userId, friendId, content })
+  const sendPrivateMessage = async (userId: number, friendId: number, content: string, imageUrl?: string) => {
+    return emitWithAck<{ success: boolean; message?: string; event?: any }>('send_private_message', { userId, friendId, content, imageUrl })
   }
 
   // 編輯私聊消息（ACK）

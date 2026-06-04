@@ -47,7 +47,10 @@
               <span class="message-author">{{ msg.username }}</span>
               <span class="message-time">{{ formatTime(msg.createdAt) }}</span>
             </div>
-            <div class="message-text">{{ msg.content }}</div>
+            <div class="message-text">
+              <img v-if="msg.imageUrl" :src="toImageSrc(msg.imageUrl)" :alt="msg.content" class="message-image" />
+              <div v-if="msg.content" class="message-text-content">{{ msg.content }}</div>
+            </div>
           </div>
         </div>
       </div>
@@ -108,13 +111,35 @@
 
     <!-- 輸入框區域 -->
     <div class="chat-input-area">
+      <div class="input-controls">
+        <input 
+          ref="fileInputRef"
+          type="file" 
+          accept="image/*"
+          style="display: none"
+          @change="handleImageSelect"
+        />
+        <button @click="fileInputRef?.click()" class="btn-icon-input" title="上傳圖片">
+          📷
+        </button>
+      </div>
       <input 
         v-model="inputMessage"
         type="text" 
         placeholder="輸入消息..."
         class="chat-input"
         @keyup.enter="handleSendMessage" />
-      <button @click="handleSendMessage" class="btn-send">發送</button>
+      <button @click="handleSendMessage" class="btn-send" :disabled="isUploading">
+        {{ isUploading ? '上傳中...' : '發送' }}
+      </button>
+    </div>
+
+    <!-- 圖片預覽 -->
+    <div v-if="previewImage" class="image-preview">
+      <div class="preview-content">
+        <img :src="previewImage" :alt="previewImage" />
+        <button @click="clearImagePreview" class="btn-clear-preview">✕</button>
+      </div>
     </div>
   </div>
 </template>
@@ -135,6 +160,7 @@ interface Message {
   seq?: number
   roomId?: number
   content: string
+  imageUrl?: string
   userId: number
   username: string
   avatar: string
@@ -164,6 +190,18 @@ const props = defineProps<{
   currentUserId: number
 }>()
 
+const config = useRuntimeConfig()
+const apiBase = config.public.apiBase || 'http://127.0.0.1:3001'
+const uploadBase = config.public.uploadBase || apiBase
+
+const toImageSrc = (imageUrl?: string) => {
+  if (!imageUrl) return ''
+  if (/^https?:\/\//i.test(imageUrl)) {
+    return imageUrl
+  }
+  return `${uploadBase}${imageUrl}`
+}
+
 const emit = defineEmits<{
   invite: []
   messageSent: []
@@ -172,11 +210,15 @@ const emit = defineEmits<{
 const messages = ref<Message[]>([])
 const inputMessage = ref('')
 const messagesListRef = ref<HTMLElement | null>(null)
+const fileInputRef = ref<HTMLInputElement | null>(null)
 const isLoading = ref(false)
+const isUploading = ref(false)
 const showEditModal = ref(false)
 const editingContent = ref('')
 const editingMessage = ref<Message | null>(null)
 const showMembersModal = ref(false)
+const previewImage = ref<string | null>(null)
+const selectedImageUrl = ref<string | null>(null)
 const contextMenu = ref({
   show: false,
   x: 0,
@@ -238,6 +280,7 @@ const applyCreatedMessage = (data: any) => {
     seq: Number(data?.seq || messageId),
     roomId: Number(data?.roomId || props.room.id),
     content: data.content,
+    imageUrl: data.imageUrl,
     userId: data.userId,
     username: data.username,
     avatar: data.avatar,
@@ -308,9 +351,67 @@ const loadMessages = async () => {
   }
 }
 
+// 處理圖片選擇
+const handleImageSelect = async (event: Event) => {
+  const file = (event.target as HTMLInputElement).files?.[0]
+  if (!file) return
+
+  // 檢查文件類型
+  if (!file.type.startsWith('image/')) {
+    message.error('請選擇圖片文件')
+    return
+  }
+
+  // 檢查文件大小（10MB）
+  if (file.size > 10 * 1024 * 1024) {
+    message.error('圖片大小不能超過 10MB')
+    return
+  }
+
+  // 顯示圖片預覽
+  const reader = new FileReader()
+  reader.onload = () => {
+    previewImage.value = reader.result as string
+  }
+  reader.readAsDataURL(file)
+
+  // 上傳圖片
+  try {
+    isUploading.value = true
+    const result = await chatService.uploadImage(file)
+    if (result.success) {
+      selectedImageUrl.value = result.data?.imageUrl || null
+      message.success('圖片上傳成功')
+    } else {
+      message.error(result.message || '上傳失敗')
+      previewImage.value = null
+    }
+  } catch (error) {
+    console.error('上傳圖片失敗:', error)
+    message.error('上傳失敗')
+    previewImage.value = null
+  } finally {
+    isUploading.value = false
+    // 重置 file input
+    if (fileInputRef.value) {
+      fileInputRef.value.value = ''
+    }
+  }
+}
+
+// 清除圖片預覽
+const clearImagePreview = () => {
+  previewImage.value = null
+  selectedImageUrl.value = null
+  if (fileInputRef.value) {
+    fileInputRef.value.value = ''
+  }
+}
+
 // 發送消息（使用 WebSocket）
 const handleSendMessage = async () => {
-  if (!inputMessage.value.trim()) {
+  if (!inputMessage.value.trim() && !selectedImageUrl.value) {
+    message.error('請輸入消息或選擇圖片')
     return
   }
 
@@ -321,13 +422,19 @@ const handleSendMessage = async () => {
 
   try {
     // 使用 WebSocket 發送消息
-    const result = await socketSendMessage(authStore.user.id, props.room.id, inputMessage.value)
+    const result = await socketSendMessage(
+      authStore.user.id, 
+      props.room.id, 
+      inputMessage.value,
+      selectedImageUrl.value ?? undefined
+    )
     if (!result?.success) {
       message.error(result?.message || '發送失敗')
       return
     }
 
     inputMessage.value = '' // 清空輸入框
+    clearImagePreview() // 清空圖片預覽
     emit('messageSent')
   } catch (error) {
     console.error('發送消息失敗:', error)
@@ -1033,5 +1140,100 @@ watch(() => props.room.id, async (newRoomId, oldRoomId) => {
   color: #333;
 }
 
+/* 圖片相關樣式 */
+.message-image {
+  max-width: 300px;
+  max-height: 300px;
+  border-radius: 8px;
+  margin-bottom: 4px;
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &:hover {
+    transform: scale(1.05);
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  }
+}
+
+.message-text-content {
+  word-break: break-word;
+}
+
+.input-controls {
+  display: flex;
+  align-items: center;
+}
+
+.btn-icon-input {
+  width: 40px;
+  height: 40px;
+  border: 1px solid #d9d9d9;
+  background: white;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition: all 0.2s;
+
+  &:hover {
+    border-color: #667eea;
+    background: #f9fafb;
+    color: #667eea;
+  }
+
+  &:active {
+    transform: scale(0.95);
+  }
+}
+
+.image-preview {
+  padding: 12px 24px 0 24px;
+  background: white;
+  border-top: 1px solid #e8e8e8;
+  display: flex;
+  gap: 8px;
+}
+
+.preview-content {
+  position: relative;
+  display: inline-block;
+
+  img {
+    max-width: 100px;
+    max-height: 100px;
+    border-radius: 8px;
+    border: 1px solid #d9d9d9;
+  }
+
+  .btn-clear-preview {
+    position: absolute;
+    top: -8px;
+    right: -8px;
+    width: 24px;
+    height: 24px;
+    border: none;
+    background: #ff4d4f;
+    color: white;
+    border-radius: 50%;
+    font-size: 12px;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+
+    &:hover {
+      background: #ff7875;
+      transform: scale(1.1);
+    }
+  }
+}
+
+.btn-send:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 
 </style>

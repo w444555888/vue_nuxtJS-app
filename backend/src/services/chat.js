@@ -180,9 +180,9 @@ export const inviteFriendsToRoom = async (roomId, friendIds) => {
   return invitedMembers;
 };
 
-export const sendRoomMessage = async (userId, roomId, content) => {
-  if (!content || !content.trim()) {
-    throw createError("消息內容不能為空", 400);
+export const sendRoomMessage = async (userId, roomId, content, imageUrl) => {
+  if ((!content || !content.trim()) && !imageUrl) {
+    throw createError("消息內容和圖片不能同時為空", 400);
   }
 
   const member = await prisma.chatRoomMember.findUnique({
@@ -200,7 +200,8 @@ export const sendRoomMessage = async (userId, roomId, content) => {
 
   return prisma.message.create({
     data: {
-      content: content.trim(),
+      content: content ? content.trim() : "",
+      imageUrl: imageUrl || null,
       userId,
       roomId,
     },
@@ -373,9 +374,9 @@ export const getPrivateMessages = async (userId, friendId) => {
   return { friend, messages };
 };
 
-export const sendPrivateMessage = async (userId, friendId, content) => {
-  if (!content || !content.trim()) {
-    throw createError("消息內容不能為空", 400);
+export const sendPrivateMessage = async (userId, friendId, content, imageUrl) => {
+  if ((!content || !content.trim()) && !imageUrl) {
+    throw createError("消息內容和圖片不能同時為空", 400);
   }
 
   const isFriend = await prisma.friend.findFirst({
@@ -393,7 +394,8 @@ export const sendPrivateMessage = async (userId, friendId, content) => {
 
   return prisma.privateMessage.create({
     data: {
-      content: content.trim(),
+      content: content ? content.trim() : "",
+      imageUrl: imageUrl || null,
       senderId: userId,
       receiverId: friendId,
       isRead: false,

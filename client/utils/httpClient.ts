@@ -34,6 +34,14 @@ const createHttpClient = (): AxiosInstance => {
 
   // 請求搶截器 - 新增 Authorization token
   instance.interceptors.request.use((config: any) => {
+    // FormData 讓瀏覽器自動帶 boundary，避免被 application/json 破壞
+    if (typeof FormData !== 'undefined' && config.data instanceof FormData) {
+      if (config.headers) {
+        delete config.headers['Content-Type']
+        delete config.headers['content-type']
+      }
+    }
+
     if (authStore.token) {
       config.headers.Authorization = `Bearer ${authStore.token}`
     }
