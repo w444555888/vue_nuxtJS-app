@@ -15,14 +15,14 @@ export const useChatService = () => {
 
   // ==================== 群組聊天室功能 ====================
 
-  // 获取聊天室列表
+  // 獲取聊天室列表
   const fetchRooms = async () => {
     try {
       chatStore.setLoading(true)
       const result = await get('/api/chat/rooms')
       const rooms = result.data || []
       
-      // 添加未读消息数
+      // 添加未讀消息數
       const roomsWithUnread = rooms.map((room: any) => ({
         ...room,
         unreadCount: 0
@@ -63,7 +63,7 @@ export const useChatService = () => {
     }
   }
 
-  // 编辑聊天室
+  // 編輯聊天室
   const updateRoom = async (roomId: number, data: { name?: string; description?: string }) => {
     try {
       const result = await patch(`/api/chat/rooms/${roomId}`, data)
@@ -74,7 +74,7 @@ export const useChatService = () => {
     }
   }
 
-  // 邀请好友加入聊天室
+  // 邀請好友加入聊天室
   const inviteFriendsToRoom = async (roomId: number, friendIds: number[]) => {
     try {
       const result = await post(`/api/chat/rooms/${roomId}/invite`, { 
@@ -87,14 +87,14 @@ export const useChatService = () => {
     }
   }
 
-  // 获取聊天室消息
+  // 獲取聊天室消息
   const fetchMessages = async (roomId: number) => {
     try {
       chatStore.setLoading(true)
       const result = await get(`/api/chat/rooms/${roomId}/messages`)
       const messages = result.data || []
       
-      // 转换消息格式
+      // 轉換消息格式
       const formattedMessages = messages.map((msg: any) => ({
         id: msg.id,
         content: msg.content,
