@@ -304,14 +304,14 @@ router.patch("/private/:friendId/mark-read", verifyToken, async (req, res) => {
   }
 });
 
-// 文件上传端点
+// 圖片上傳接口
 router.post("/upload", verifyToken, upload.single("image"), async (req, res) => {
   try {
     if (!req.file) {
       return errorResponse(res, "未選擇圖片", 400);
     }
 
-    // 返回图片的访问URL
+    // 生成圖片 URL，前端可以通過這個 URL 訪問圖片
     const imageUrl = `/uploads/${req.file.filename}`;
     return successResponse(res, { imageUrl }, "圖片上傳成功", 200);
   } catch (error) {

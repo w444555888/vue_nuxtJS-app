@@ -15,7 +15,7 @@ const storage = multer.diskStorage({
     cb(null, uploadDir);
   },
   filename: (req, file, cb) => {
-    // 生成唯一文件名：字段名 + 时间戳 + 随机数 + 原始扩展名
+    // 生成唯一文件名：字段名 + 時間戳 + 隨機數 + 原始擴展名
     const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
     cb(
       null,
@@ -33,7 +33,7 @@ const fileFilter = (req, file, cb) => {
   if (allowedMimes.includes(file.mimetype)) {
     cb(null, true);
   } else {
-    cb(new Error("仅支持 JPEG, PNG, GIF, WebP 图片格式"));
+    cb(new Error("僅支持 JPEG, PNG, GIF, WebP 圖片格式"));
   }
 };
 
