@@ -83,7 +83,7 @@
           @change="handleImageSelect"
         />
         <button @click="fileInputRef?.click()" class="btn-icon-input" title="上傳圖片">
-          📷
+          <PictureOutlined />
         </button>
       </div>
       <input 
@@ -112,6 +112,7 @@
 import { ref, onMounted, onUnmounted, watch } from 'vue'
 import dayjs from 'dayjs'
 import { message } from 'ant-design-vue'
+import { PictureOutlined } from '@antdv-next/icons'
 import Modal from '~/components/Modal.vue'
 
 interface Friend {
@@ -168,6 +169,7 @@ const editingMessage = ref<Message | null>(null)
 const isUploading = ref(false)
 const previewImage = ref<string | null>(null)
 const selectedImageUrl = ref<string | null>(null)
+const selectedFile = ref<File | null>(null)
 const contextMenu = ref({
   show: false,
   x: 0,
@@ -286,41 +288,22 @@ const handleImageSelect = async (event: Event) => {
     return
   }
 
-  // 顯示圖片預覽
+  // 保存文件供後續上傳
+  selectedFile.value = file
+
+  // 只顯示本地圖片預覽，不上傳
   const reader = new FileReader()
   reader.onload = () => {
     previewImage.value = reader.result as string
   }
   reader.readAsDataURL(file)
-
-  // 上傳圖片
-  try {
-    isUploading.value = true
-    const result = await chatService.uploadImage(file)
-    if (result.success) {
-      selectedImageUrl.value = result.data?.imageUrl || null
-      message.success('圖片上傳成功')
-    } else {
-      message.error(result.message || '上傳失敗')
-      previewImage.value = null
-    }
-  } catch (error) {
-    console.error('上傳圖片失敗:', error)
-    message.error('上傳失敗')
-    previewImage.value = null
-  } finally {
-    isUploading.value = false
-    // 重置 file input
-    if (fileInputRef.value) {
-      fileInputRef.value.value = ''
-    }
-  }
 }
 
 // 清除圖片預覽
 const clearImagePreview = () => {
   previewImage.value = null
   selectedImageUrl.value = null
+  selectedFile.value = null
   if (fileInputRef.value) {
     fileInputRef.value.value = ''
   }
@@ -387,12 +370,27 @@ const closeChat = () => {
 }
 
 const sendMessage = async () => {
-  if (!messageContent.value.trim() && !selectedImageUrl.value) {
+  if (!messageContent.value.trim() && !selectedFile.value) {
     message.error('請輸入消息或選擇圖片')
     return
   }
 
   try {
+    let imageUrl: string | undefined = undefined
+
+    // 如果有選擇的圖片文件，先上傳
+    if (selectedFile.value) {
+      isUploading.value = true
+      const uploadResult = await chatService.uploadImage(selectedFile.value)
+      if (!uploadResult.success) {
+        message.error(uploadResult.message || '圖片上傳失敗')
+        isUploading.value = false
+        return
+      }
+      imageUrl = uploadResult.data?.imageUrl
+      isUploading.value = false
+    }
+
     const content = messageContent.value.trim()
 
     // 通過 Socket 發送，後端統一寫入資料庫與廣播
@@ -400,7 +398,7 @@ const sendMessage = async () => {
       props.currentUserId, 
       props.friend.id, 
       content,
-      selectedImageUrl.value ?? undefined
+      imageUrl
     )
 
     if (!result?.success) {
@@ -414,6 +412,8 @@ const sendMessage = async () => {
   } catch (error) {
     console.error('私聊消息發送失敗:', error)
     message.error('發送失敗，請稍後再試')
+  } finally {
+    isUploading.value = false
   }
 }
 
