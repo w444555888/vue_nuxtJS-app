@@ -309,7 +309,7 @@ router.patch("/private/:friendId/mark-read", verifyToken, async (req, res) => {
 router.post("/upload", verifyToken, upload.single("image"), async (req, res) => {
   try {
     if (!req.file) {
-      return errorResponse(res, "未選擇圖片", 400);
+      return errorResponse(res, "未選擇媒體文件", 400);
     }
 
     const uploadResult = await uploadImageBuffer(req.file.buffer, {
@@ -318,10 +318,10 @@ router.post("/upload", verifyToken, upload.single("image"), async (req, res) => 
     });
 
     const imageUrl = uploadResult.secure_url;
-    return successResponse(res, { imageUrl }, "圖片上傳成功", 200);
+    return successResponse(res, { imageUrl }, "媒體上傳成功", 200);
   } catch (error) {
     console.error("上傳圖片失敗:", error);
-    return errorResponse(res, error.message || "上傳圖片失敗", 500);
+    return errorResponse(res, error.message || "上傳媒體失敗", 500);
   }
 });
 

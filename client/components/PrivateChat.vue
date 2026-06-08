@@ -41,7 +41,14 @@
               <span class="message-time">{{ formatTime(msg.createdAt) }}</span>
             </div>
             <div class="message-text">
-              <img v-if="msg.imageUrl" :src="toImageSrc(msg.imageUrl)" :alt="msg.content" class="message-image" />
+              <video
+                v-if="msg.imageUrl && isVideoUrl(msg.imageUrl)"
+                :src="toImageSrc(msg.imageUrl)"
+                class="message-media"
+                controls
+                preload="metadata"
+              />
+              <img v-else-if="msg.imageUrl" :src="toImageSrc(msg.imageUrl)" :alt="msg.content" class="message-media" />
               <div v-if="msg.content" class="message-text-content">{{ msg.content }}</div>
             </div>
           </div>
@@ -78,11 +85,11 @@
         <input 
           ref="fileInputRef"
           type="file" 
-          accept="image/*"
+          accept="image/*,video/*"
           style="display: none"
           @change="handleImageSelect"
         />
-        <button @click="fileInputRef?.click()" class="btn-icon-input" title="上傳圖片">
+        <button @click="fileInputRef?.click()" class="btn-icon-input" title="上傳圖片或影片">
           <PictureOutlined />
         </button>
       </div>
@@ -98,10 +105,11 @@
       </button>
     </div>
 
-    <!-- 圖片預覽 -->
-    <div v-if="previewImage" class="image-preview">
+    <!-- 媒體預覽 -->
+    <div v-if="previewMedia" class="image-preview">
       <div class="preview-content">
-        <img :src="previewImage" :alt="previewImage" />
+        <video v-if="previewType === 'video'" :src="previewMedia" controls preload="metadata" />
+        <img v-else :src="previewMedia" :alt="previewMedia" />
         <button @click="clearImagePreview" class="btn-clear-preview">✕</button>
       </div>
     </div>
@@ -145,6 +153,11 @@ const toImageSrc = (imageUrl?: string) => {
   return /^https?:\/\//i.test(imageUrl) ? imageUrl : ''
 }
 
+const isVideoUrl = (url?: string) => {
+  if (!url) return false
+  return /(\.mp4|\.webm|\.mov)(\?|$)/i.test(url) || /\/video\/upload\//i.test(url)
+}
+
 const emit = defineEmits<{
   close: []
   messageSent: []
@@ -160,7 +173,8 @@ const showEditModal = ref(false)
 const editingContent = ref('')
 const editingMessage = ref<Message | null>(null)
 const isUploading = ref(false)
-const previewImage = ref<string | null>(null)
+const previewMedia = ref<string | null>(null)
+const previewType = ref<'image' | 'video' | null>(null)
 const selectedFile = ref<File | null>(null)
 const contextMenu = ref({
   show: false,
@@ -263,37 +277,42 @@ const formatTime = (timestamp: string) => {
   return dayjs(timestamp).format('YYYY-MM-DD HH:mm')
 }
 
-// 處理圖片選擇
+// 處理媒體選擇
 const handleImageSelect = async (event: Event) => {
   const file = (event.target as HTMLInputElement).files?.[0]
   if (!file) return
 
+  const isImage = file.type.startsWith('image/')
+  const isVideo = file.type.startsWith('video/')
+
   // 檢查文件類型
-  if (!file.type.startsWith('image/')) {
-    message.error('請選擇圖片文件')
+  if (!isImage && !isVideo) {
+    message.error('請選擇圖片或影片文件')
     return
   }
 
-  // 檢查文件大小（10MB）
-  if (file.size > 10 * 1024 * 1024) {
-    message.error('圖片大小不能超過 10MB')
+  const maxSize = isVideo ? 50 * 1024 * 1024 : 10 * 1024 * 1024
+  if (file.size > maxSize) {
+    message.error(isVideo ? '影片大小不能超過 50MB' : '圖片大小不能超過 10MB')
     return
   }
 
-  // 保存文件供後續上傳
+  if (previewMedia.value && previewMedia.value.startsWith('blob:')) {
+    URL.revokeObjectURL(previewMedia.value)
+  }
+
   selectedFile.value = file
-
-  // 只顯示本地圖片預覽，不上傳
-  const reader = new FileReader()
-  reader.onload = () => {
-    previewImage.value = reader.result as string
-  }
-  reader.readAsDataURL(file)
+  previewType.value = isVideo ? 'video' : 'image'
+  previewMedia.value = URL.createObjectURL(file)
 }
 
-// 清除圖片預覽
+// 清除媒體預覽
 const clearImagePreview = () => {
-  previewImage.value = null
+  if (previewMedia.value && previewMedia.value.startsWith('blob:')) {
+    URL.revokeObjectURL(previewMedia.value)
+  }
+  previewMedia.value = null
+  previewType.value = null
   selectedFile.value = null
   if (fileInputRef.value) {
     fileInputRef.value.value = ''
@@ -362,19 +381,19 @@ const closeChat = () => {
 
 const sendMessage = async () => {
   if (!messageContent.value.trim() && !selectedFile.value) {
-    message.error('請輸入消息或選擇圖片')
+    message.error('請輸入消息或選擇圖片/影片')
     return
   }
 
   try {
     let imageUrl: string | undefined = undefined
 
-    // 如果有選擇的圖片文件，先上傳
+    // 如果有選擇的媒體文件，先上傳
     if (selectedFile.value) {
       isUploading.value = true
       const uploadResult = await chatService.uploadImage(selectedFile.value)
       if (!uploadResult.success) {
-        message.error(uploadResult.message || '圖片上傳失敗')
+        message.error(uploadResult.message || '媒體上傳失敗')
         isUploading.value = false
         return
       }
@@ -935,8 +954,8 @@ onUnmounted(() => {
   }
 }
 
-/* 圖片相關樣式 */
-.message-image {
+/* 媒體相關樣式 */
+.message-media {
   max-width: 300px;
   max-height: 300px;
   border-radius: 8px;
@@ -995,7 +1014,8 @@ onUnmounted(() => {
   position: relative;
   display: inline-block;
 
-  img {
+  img,
+  video {
     max-width: 100px;
     max-height: 100px;
     border-radius: 8px;

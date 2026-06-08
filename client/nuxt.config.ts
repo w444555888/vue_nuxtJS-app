@@ -32,7 +32,8 @@ export default defineNuxtConfig({
           'wss:',
           'ws:'
         ],
-        'img-src': ["'self'", 'data:', 'blob:', 'https:', apiBase, cloudinaryImageBase]
+        'img-src': ["'self'", 'data:', 'blob:', 'https:', apiBase, cloudinaryImageBase],
+        'media-src': ["'self'", 'blob:', 'https:', cloudinaryImageBase]
       }
     },
     rateLimiter: { // 同一個 IP 每 5 分鐘允許 150 個請求，超過則返回 429 Too Many Requests
