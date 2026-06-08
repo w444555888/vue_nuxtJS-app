@@ -2,8 +2,6 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import http from "http";
-import path from "path";
-import { fileURLToPath } from "url";
 import { Server as SocketIO } from "socket.io";
 import jwt from "jsonwebtoken";
 import socketHandler from "./socket.js";
@@ -12,9 +10,6 @@ import chatRoutes from "./routes/chat.js";
 import friendsRoutes from "./routes/friends.js";
 import profileRoutes from "./routes/profile.js";
 import aiRoutes from "./routes/ai.js";
-
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
 
 const app = express();
 const server = http.createServer(app);
@@ -34,9 +29,6 @@ io.engine.on("connection_error", (err) => {
 
 app.use(express.json());
 app.use(cors());
-
-// 提供靜態文件服務 - 用於上傳的圖片
-app.use("/uploads", express.static(path.join(__dirname, "../public/uploads")));
 
 app.use("/api/auth", authRoutes);
 app.use("/api/chat", chatRoutes);

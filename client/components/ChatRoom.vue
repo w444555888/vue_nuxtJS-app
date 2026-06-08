@@ -190,16 +190,9 @@ const props = defineProps<{
   currentUserId: number
 }>()
 
-const config = useRuntimeConfig()
-const apiBase = config.public.apiBase || 'http://127.0.0.1:3001'
-const uploadBase = config.public.uploadBase || apiBase
-
 const toImageSrc = (imageUrl?: string) => {
   if (!imageUrl) return ''
-  if (/^https?:\/\//i.test(imageUrl)) {
-    return imageUrl
-  }
-  return `${uploadBase}${imageUrl}`
+  return /^https?:\/\//i.test(imageUrl) ? imageUrl : ''
 }
 
 const emit = defineEmits<{
@@ -218,7 +211,6 @@ const editingContent = ref('')
 const editingMessage = ref<Message | null>(null)
 const showMembersModal = ref(false)
 const previewImage = ref<string | null>(null)
-const selectedImageUrl = ref<string | null>(null)
 const selectedFile = ref<File | null>(null)
 const contextMenu = ref({
   show: false,
@@ -383,7 +375,6 @@ const handleImageSelect = async (event: Event) => {
 // 清除圖片預覽
 const clearImagePreview = () => {
   previewImage.value = null
-  selectedImageUrl.value = null
   selectedFile.value = null
   if (fileInputRef.value) {
     fileInputRef.value.value = ''

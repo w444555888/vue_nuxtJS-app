@@ -1,16 +1,10 @@
 export const useChatService = () => {
   const { get, post, patch, delete: deleteRequest } = useHttpClient()
   const chatStore = useChatStore()
-  const config = useRuntimeConfig()
-  const apiBase = config.public.apiBase || 'http://127.0.0.1:3001'
-  const uploadBase = config.public.uploadBase || apiBase
 
   const resolveImageUrl = (imageUrl?: string | null) => {
     if (!imageUrl) return null
-    if (/^https?:\/\//i.test(imageUrl)) {
-      return imageUrl
-    }
-    return `${uploadBase}${imageUrl}`
+    return /^https?:\/\//i.test(imageUrl) ? imageUrl : null
   }
 
   // ==================== 群組聊天室功能 ====================

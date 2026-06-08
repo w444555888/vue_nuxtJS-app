@@ -1,6 +1,7 @@
 import express from "express";
 import { verifyToken } from "../middleware/auth.js";
 import { successResponse, errorResponse } from "../utils/responseHandler.js";
+import { uploadImageBuffer } from "../utils/cloudinary.js";
 import upload from "../middleware/upload.js";
 import {
   getUserRooms,
@@ -311,8 +312,12 @@ router.post("/upload", verifyToken, upload.single("image"), async (req, res) => 
       return errorResponse(res, "未選擇圖片", 400);
     }
 
-    // 生成圖片 URL，前端可以通過這個 URL 訪問圖片
-    const imageUrl = `/uploads/${req.file.filename}`;
+    const uploadResult = await uploadImageBuffer(req.file.buffer, {
+      public_id: `chat_${req.user.id}_${Date.now()}`,
+      overwrite: false,
+    });
+
+    const imageUrl = uploadResult.secure_url;
     return successResponse(res, { imageUrl }, "圖片上傳成功", 200);
   } catch (error) {
     console.error("上傳圖片失敗:", error);

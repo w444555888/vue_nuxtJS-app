@@ -1,7 +1,7 @@
 // @ts-nocheck
 const apiBase = process.env.API_BASE || 'http://127.0.0.1:3001'
 const socketUrl = process.env.SOCKET_URL || 'http://127.0.0.1:3001'
-const uploadBase = process.env.UPLOAD_BASE || apiBase
+const cloudinaryImageBase = process.env.CLOUDINARY_IMAGE_BASE || 'https://res.cloudinary.com'
 
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
@@ -32,7 +32,7 @@ export default defineNuxtConfig({
           'wss:',
           'ws:'
         ],
-        'img-src': ["'self'", 'data:', 'blob:', 'https:', apiBase, uploadBase]
+        'img-src': ["'self'", 'data:', 'blob:', 'https:', apiBase, cloudinaryImageBase]
       }
     },
     rateLimiter: { // 同一個 IP 每 5 分鐘允許 150 個請求，超過則返回 429 Too Many Requests
@@ -57,8 +57,7 @@ export default defineNuxtConfig({
   runtimeConfig: {
     public: {
       apiBase,
-      socketUrl,
-      uploadBase
+      socketUrl
     }
   }
 })

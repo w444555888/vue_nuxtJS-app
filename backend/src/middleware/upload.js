@@ -1,31 +1,6 @@
 import multer from "multer";
-import path from "path";
-import { fileURLToPath } from "url";
 
-// 獲取當前文件路徑和目錄
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
-// 定義上傳目錄
-const uploadDir = path.join(__dirname, "../../public/uploads");
-
-// 確保上傳目錄存在
-const storage = multer.diskStorage({
-  destination: (req, file, cb) => {
-    cb(null, uploadDir);
-  },
-  filename: (req, file, cb) => {
-    // 生成唯一文件名：字段名 + 時間戳 + 隨機數 + 原始擴展名
-    const uniqueSuffix = Date.now() + "-" + Math.round(Math.random() * 1e9);
-    cb(
-      null,
-      file.fieldname +
-        "-" +
-        uniqueSuffix +
-        path.extname(file.originalname)
-    );
-  },
-});
+const storage = multer.memoryStorage();
 
 // 文件過濾器 - 只允許圖片格式
 const fileFilter = (req, file, cb) => {
