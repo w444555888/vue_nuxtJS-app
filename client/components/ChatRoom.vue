@@ -149,6 +149,19 @@
         <button @click="clearImagePreview" class="btn-clear-preview">✕</button>
       </div>
     </div>
+
+    <!-- 上傳進度條 -->
+    <div v-if="isUploading && uploadProgress >= 0" class="upload-progress-bar">
+      <div class="progress-wrapper">
+        <div class="progress-info">
+          <span class="progress-text">上傳中...</span>
+          <span class="progress-percent">{{ uploadProgress }}%</span>
+        </div>
+        <div class="progress-container">
+          <div class="progress-fill" :style="{ width: uploadProgress + '%' }"></div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
@@ -162,6 +175,7 @@ import ConfirmModal from '~/components/ConfirmModal.vue'
 import { useChatService } from '~/composables/useChatService'
 import { useSocket } from '~/composables/useSocket'
 import { useAuthStore } from '~/stores/auth'
+import 'simple-uploader.js'
 
 interface Message {
   id: number
@@ -219,6 +233,7 @@ const messagesListRef = ref<HTMLElement | null>(null)
 const fileInputRef = ref<HTMLInputElement | null>(null)
 const isLoading = ref(false)
 const isUploading = ref(false)
+const uploadProgress = ref(0)
 const showEditModal = ref(false)
 const editingContent = ref('')
 const editingMessage = ref<Message | null>(null)
@@ -418,13 +433,32 @@ const handleSendMessage = async () => {
     // 如果有選擇的媒體文件，先上傳
     if (selectedFile.value) {
       isUploading.value = true
-      const uploadResult = await chatService.uploadImage(selectedFile.value)
-      if (!uploadResult.success) {
-        message.error(uploadResult.message || '媒體上傳失敗')
+      uploadProgress.value = 0
+      
+      // 根據文件大小選擇上傳方式
+      const isLargeFile = selectedFile.value.size > 5 * 1024 * 1024  // 改成 5MB 方便測試
+      
+      let uploadResult
+      if (isLargeFile) {
+        // 大文件使用分片上傳
+        uploadResult = await chatService.uploadMediaChunked(
+          selectedFile.value,
+          (progress) => {
+            uploadProgress.value = progress
+          }
+        )
+      } else {
+        // 小文件直接上傳
+        uploadResult = await chatService.uploadImage(selectedFile.value)
+      }
+      
+      if (!(uploadResult as any).success) {
+        message.error((uploadResult as any).message || '媒體上傳失敗')
         return
       }
-      imageUrl = uploadResult.data?.imageUrl
+      imageUrl = (uploadResult as any).data?.mediaUrl || (uploadResult as any).data?.imageUrl
       isUploading.value = false
+      uploadProgress.value = 0
     }
 
     // 使用 WebSocket 發送消息
@@ -447,6 +481,7 @@ const handleSendMessage = async () => {
     message.error('發送失敗')
   } finally {
     isUploading.value = false
+    uploadProgress.value = 0
   }
 }
 
@@ -547,6 +582,14 @@ const deleteMessage = async () => {
 
 // 組件掛載時初始化 Socket
 onMounted(async () => {
+  // 初始化 simple-uploader.js
+  try {
+    const Uploader = (await import('simple-uploader.js')).default
+    ;(window as any).Uploader = Uploader
+  } catch (error) {
+    console.error('初始化 Uploader 失敗:', error)
+  }
+
   // 初始化 Socket 連接
   initSocket()
 
@@ -1243,6 +1286,50 @@ watch(() => props.room.id, async (newRoomId, oldRoomId) => {
 .btn-send:disabled {
   opacity: 0.6;
   cursor: not-allowed;
+}
+
+.upload-progress-bar {
+  padding: 12px 24px;
+  background: white;
+  border-top: 1px solid #e8e8e8;
+}
+
+.progress-wrapper {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.progress-info {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 12px;
+  color: #666;
+}
+
+.progress-text {
+  font-weight: 500;
+}
+
+.progress-percent {
+  font-weight: 600;
+  color: #1890ff;
+}
+
+.progress-container {
+  width: 100%;
+  height: 6px;
+  background: #f0f0f0;
+  border-radius: 3px;
+  overflow: hidden;
+}
+
+.progress-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #1890ff, #52c41a);
+  border-radius: 3px;
+  transition: width 0.3s ease;
 }
 
 </style>

@@ -238,7 +238,7 @@ export const useChatService = () => {
     }
   }
 
-  // 上傳圖片
+  // 上傳圖片（小文件，單次上傳）
   const uploadImage = async (file: File) => {
     try {
       const formData = new FormData()
@@ -250,6 +250,127 @@ export const useChatService = () => {
       console.error('上傳圖片失敗:', error)
       return { success: false, error: error.message, message: error.message }
     }
+  }
+
+  // 分片上傳媒體（使用 simple-uploader.js，支援大文件，帶進度回調）
+  const uploadMediaChunked = async (
+    file: File,
+    onProgress?: (progress: number) => void
+  ) => {
+    return new Promise((resolve) => {
+      try {
+        const Uploader = (window as any).Uploader
+        if (!Uploader) {
+          resolve({ 
+            success: false, 
+            error: 'Uploader 未初始化', 
+            message: 'Uploader 未初始化' 
+          })
+          return
+        }
+
+        const uploadId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`
+        const uploader = new Uploader({
+          target: '/api/chat/upload-chunk',
+          chunkSize: 5 * 1024 * 1024, // 5MB
+          simultaneousUploads: 3, // 同時上傳 3 個分片
+          headers: {
+            Authorization: `Bearer ${localStorage.getItem('token')}`
+          },
+          query: () => ({
+            uploadId,
+            fileName: file.name
+          })
+        })
+
+        uploader.addFile(file)
+
+        let lastProgressUpdate = 0
+
+        // 監聽上傳進度
+        uploader.on('progress', (progress: any) => {
+          // simple-uploader.js progress 事件可能返回對象 { loaded, total } 或百分比
+          let progressPercent = 0
+          
+          if (typeof progress === 'number') {
+            // 如果是 0-1 的百分比
+            progressPercent = Math.round(progress * 90)
+          } else if (typeof progress === 'object' && progress.loaded !== undefined) {
+            // 如果是 { loaded, total } 的對象
+            progressPercent = Math.round((progress.loaded / progress.total) * 90)
+          }
+          
+          // 防止頻繁更新，每次更新至少間隔 1%
+          if (onProgress && Math.abs(progressPercent - lastProgressUpdate) >= 1) {
+            onProgress(progressPercent)
+            lastProgressUpdate = progressPercent
+            console.log(`上傳進度: ${progressPercent}%`, progress) // 調試用
+          }
+        })
+
+        // 監聽所有分片上傳完成
+        uploader.on('complete', async () => {
+          try {
+            if (onProgress) {
+              onProgress(95) // 合併中
+            }
+
+            const mergeFormData = new FormData()
+            mergeFormData.append('uploadId', uploadId)
+            mergeFormData.append('totalChunks', uploader.fileList[0]?.chunks?.length.toString() || '1')
+            mergeFormData.append('fileName', file.name)
+
+            const mergeResult = await post('/api/chat/upload-merge', mergeFormData)
+
+            if (!mergeResult.success) {
+              resolve({
+                success: false,
+                error: mergeResult.message || '媒體合併失敗',
+                message: mergeResult.message || '媒體合併失敗'
+              })
+              return
+            }
+
+            if (onProgress) {
+              onProgress(100)
+            }
+
+            resolve({
+              success: true,
+              data: { mediaUrl: mergeResult.data.mediaUrl },
+              message: '媒體上傳成功'
+            })
+          } catch (error: any) {
+            console.error('合併失敗:', error)
+            resolve({
+              success: false,
+              error: error.message,
+              message: error.message
+            })
+          }
+        })
+
+        // 監聽上傳錯誤
+        uploader.on('error', (err: any) => {
+          console.error('上傳錯誤:', err)
+          resolve({
+            success: false,
+            error: err.message || '上傳失敗',
+            message: err.message || '上傳失敗'
+          })
+        })
+
+        // 開始上傳
+        uploader.upload()
+      } catch (error: any) {
+        console.error('分片上傳初始化失敗:', error)
+        resolve({
+          success: false,
+          error: error.message,
+          message: error.message
+        })
+      }
+    })
   }
 
   return {
@@ -268,6 +389,7 @@ export const useChatService = () => {
     editPrivateMessage,
     deletePrivateMessage,
     markPrivateAsRead,
-    uploadImage
+    uploadImage,
+    uploadMediaChunked
   }
 }

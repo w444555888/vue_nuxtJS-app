@@ -55,6 +55,14 @@ export default defineNuxtConfig({
       mode: 'out-in'
     }
   },
+  typescript: {
+    typeCheck: 'build',
+    tsConfig: {
+      compilerOptions: {
+        typeRoots: ['./node_modules/@types', './types']
+      }
+    }
+  },
   runtimeConfig: {
     public: {
       apiBase,

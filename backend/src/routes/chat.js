@@ -3,6 +3,7 @@ import { verifyToken } from "../middleware/auth.js";
 import { successResponse, errorResponse } from "../utils/responseHandler.js";
 import { uploadImageBuffer } from "../utils/cloudinary.js";
 import upload from "../middleware/upload.js";
+import { saveChunk, mergeChunks, cleanupChunks } from "../utils/chunkUpload.js";
 import {
   getUserRooms,
   createRoom,
@@ -322,6 +323,67 @@ router.post("/upload", verifyToken, upload.single("image"), async (req, res) => 
   } catch (error) {
     console.error("上傳圖片失敗:", error);
     return errorResponse(res, error.message || "上傳媒體失敗", 500);
+  }
+});
+
+// 分片上傳接口
+router.post("/upload-chunk", verifyToken, upload.single("chunk"), async (req, res) => {
+  try {
+    const { uploadId, chunkIndex, totalChunks } = req.body;
+
+    if (!uploadId || chunkIndex === undefined || !totalChunks) {
+      return errorResponse(res, "缺少必要參數", 400);
+    }
+
+    if (!req.file) {
+      return errorResponse(res, "未選擇分片文件", 400);
+    }
+
+    saveChunk(uploadId, parseInt(chunkIndex, 10), req.file.buffer);
+
+    return successResponse(
+      res,
+      { uploadId, chunkIndex: parseInt(chunkIndex, 10) },
+      "分片上傳成功",
+      200
+    );
+  } catch (error) {
+    console.error("分片上傳失敗:", error);
+    return errorResponse(res, error.message || "分片上傳失敗", 500);
+  }
+});
+
+// 合併分片並上傳到 Cloudinary
+router.post("/upload-merge", verifyToken, async (req, res) => {
+  try {
+    const { uploadId, totalChunks, fileName } = req.body;
+
+    if (!uploadId || !totalChunks || !fileName) {
+      return errorResponse(res, "缺少必要參數", 400);
+    }
+
+    const mergedBuffer = mergeChunks(uploadId, parseInt(totalChunks, 10));
+
+    const uploadResult = await uploadImageBuffer(mergedBuffer, {
+      public_id: `chat_${req.user.id}_${uploadId}`,
+      overwrite: false,
+    });
+
+    // 上傳成功後清理分片
+    cleanupChunks(uploadId);
+
+    const mediaUrl = uploadResult.secure_url;
+    return successResponse(res, { mediaUrl }, "媒體上傳成功", 200);
+  } catch (error) {
+    console.error("合併上傳失敗:", error);
+    // 清理分片（失敗時也要清）
+    try {
+      const { uploadId } = req.body || {};
+      if (uploadId) cleanupChunks(uploadId);
+    } catch (cleanupError) {
+      console.error("清理分片失敗:", cleanupError);
+    }
+    return errorResponse(res, error.message || "媒體合併失敗", 500);
   }
 });
 
