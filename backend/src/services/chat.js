@@ -490,3 +490,110 @@ export const markPrivateMessagesRead = async (userId, friendId) => {
     data: { isRead: true },
   });
 };
+
+// ==================== 媒體上傳功能 ====================
+
+const MEDIA_UPLOAD_LIMITS = {
+  directUploadMaxBytes: 6 * 1024 * 1024,
+  chunkUploadMaxBytes: 4 * 1024 * 1024,
+  mergedUploadMaxBytes: 50 * 1024 * 1024,
+};
+
+/**
+ * 統一的媒體上傳處理函數
+ * 支持三種模式：分片上傳、合併分片、直接上傳小文件
+ */
+export const handleMediaUpload = async (
+  userId,
+  uploadData,
+  fileBuffer
+) => {
+  const { uploadId, chunkIndex, totalChunks, fileName } = uploadData;
+  const { saveChunk, mergeChunks, cleanupChunks } = await import("../utils/chunkUpload.js");
+  const { uploadImageBuffer } = await import("../utils/cloudinary.js");
+
+  try {
+    // ===== 模式 1: 分片上傳 =====
+    if (uploadId && chunkIndex !== undefined) {
+      if (!fileBuffer) {
+        throw createError("未選擇分片文件", 400);
+      }
+
+      if (fileBuffer.length > MEDIA_UPLOAD_LIMITS.chunkUploadMaxBytes) {
+        throw createError("單個分片不可超過 4MB", 413);
+      }
+
+      saveChunk(uploadId, parseInt(chunkIndex, 10), fileBuffer);
+
+      return {
+        success: true,
+        data: {
+          uploadId,
+          chunkIndex: parseInt(chunkIndex, 10),
+        },
+        message: "分片上傳成功",
+      };
+    }
+
+    // ===== 模式 2: 合併分片 =====
+    if (uploadId && totalChunks && chunkIndex === undefined && !fileBuffer) {
+      const mergedBuffer = mergeChunks(uploadId, parseInt(totalChunks, 10));
+
+      if (mergedBuffer.length > MEDIA_UPLOAD_LIMITS.mergedUploadMaxBytes) {
+        throw createError("媒體檔案不可超過 50MB", 413);
+      }
+
+      const uploadResult = await uploadImageBuffer(mergedBuffer, {
+        public_id: `chat_${userId}_${uploadId}`,
+        overwrite: false,
+      });
+
+      // 上傳成功後清理分片
+      cleanupChunks(uploadId);
+
+      const mediaUrl = uploadResult.secure_url;
+      return {
+        success: true,
+        data: { mediaUrl },
+        message: "媒體上傳成功",
+      };
+    }
+
+    // ===== 模式 3: 直接上傳小文件 =====
+    if (!uploadId && chunkIndex === undefined) {
+      if (!fileBuffer) {
+        throw createError("未選擇媒體文件", 400);
+      }
+
+      if (fileBuffer.length > MEDIA_UPLOAD_LIMITS.directUploadMaxBytes) {
+        throw createError("檔案超過 6MB，請改用分片上傳", 413);
+      }
+
+      const uploadResult = await uploadImageBuffer(fileBuffer, {
+        public_id: `chat_${userId}_${Date.now()}`,
+        overwrite: false,
+      });
+
+      const mediaUrl = uploadResult.secure_url;
+      return {
+        success: true,
+        data: { mediaUrl },
+        message: "媒體上傳成功",
+      };
+    }
+
+    // 參數不正確
+    throw createError("參數不正確", 400);
+  } catch (error) {
+    // 清理分片（失敗時也要清）
+    try {
+      if (uploadId) {
+        const { cleanupChunks: cleanup } = await import("../utils/chunkUpload.js");
+        cleanup(uploadId);
+      }
+    } catch (cleanupError) {
+      console.error("清理分片失敗:", cleanupError);
+    }
+    throw error;
+  }
+};

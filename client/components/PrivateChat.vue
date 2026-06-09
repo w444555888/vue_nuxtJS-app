@@ -82,14 +82,14 @@
     <!-- 私聊輸入框 -->
     <div class="chat-input-area">
       <div class="input-controls">
-        <input 
-          ref="fileInputRef"
-          type="file" 
+        <input
+          ref="mediaInputRef"
+          type="file"
           accept="image/*,video/*"
-          style="display: none"
-          @change="handleImageSelect"
+          class="file-input-hidden"
+          @change="onMediaInputChange"
         />
-        <button @click="fileInputRef?.click()" class="btn-icon-input" title="上傳圖片或影片">
+        <button type="button" class="btn-icon-input" title="上傳圖片或影片" @click="openMediaPicker">
           <PictureOutlined />
         </button>
       </div>
@@ -130,14 +130,13 @@
 </template>
 
 <script setup lang="ts">
-import { ref, onMounted, onUnmounted, watch } from 'vue'
+import { ref, onMounted, onUnmounted, watch, nextTick, computed } from 'vue'
 import dayjs from 'dayjs'
 import { message } from 'ant-design-vue'
 import { PictureOutlined } from '@antdv-next/icons'
 import Modal from '~/components/Modal.vue'
-import { useChatService } from '~/composables/useChatService'
+import { CHAT_UPLOAD_LIMITS, useChatService } from '~/composables/useChatService'
 import { useSocket } from '~/composables/useSocket'
-import 'simple-uploader.js'
 
 interface Friend {
   id: number
@@ -184,7 +183,6 @@ const socket = useSocket()
 
 const messages = ref<Message[]>([])
 const messageContent = ref('')
-const fileInputRef = ref<HTMLInputElement | null>(null)
 const showEditModal = ref(false)
 const editingContent = ref('')
 const editingMessage = ref<Message | null>(null)
@@ -199,6 +197,9 @@ const contextMenu = ref({
   y: 0,
   message: null as Message | null
 })
+
+const mediaInputRef = ref<HTMLInputElement | null>(null)
+
 let messageListener: ((data: any) => void) | null = null
 let privateMissedMessagesListener: ((data: any[]) => void) | null = null
 let privateMessageUpdatedListener: ((data: any) => void) | null = null
@@ -294,48 +295,6 @@ const formatTime = (timestamp: string) => {
   return dayjs(timestamp).format('YYYY-MM-DD HH:mm')
 }
 
-// 處理媒體選擇
-const handleImageSelect = async (event: Event) => {
-  const file = (event.target as HTMLInputElement).files?.[0]
-  if (!file) return
-
-  const isImage = file.type.startsWith('image/')
-  const isVideo = file.type.startsWith('video/')
-
-  // 檢查文件類型
-  if (!isImage && !isVideo) {
-    message.error('請選擇圖片或影片文件')
-    return
-  }
-
-  const maxSize = isVideo ? 50 * 1024 * 1024 : 10 * 1024 * 1024
-  if (file.size > maxSize) {
-    message.error(isVideo ? '影片大小不能超過 50MB' : '圖片大小不能超過 10MB')
-    return
-  }
-
-  if (previewMedia.value && previewMedia.value.startsWith('blob:')) {
-    URL.revokeObjectURL(previewMedia.value)
-  }
-
-  selectedFile.value = file
-  previewType.value = isVideo ? 'video' : 'image'
-  previewMedia.value = URL.createObjectURL(file)
-}
-
-// 清除媒體預覽
-const clearImagePreview = () => {
-  if (previewMedia.value && previewMedia.value.startsWith('blob:')) {
-    URL.revokeObjectURL(previewMedia.value)
-  }
-  previewMedia.value = null
-  previewType.value = null
-  selectedFile.value = null
-  if (fileInputRef.value) {
-    fileInputRef.value.value = ''
-  }
-}
-
 const showContextMenu = (event: MouseEvent, msg: Message) => {
   if (msg.senderId !== props.currentUserId) return
 
@@ -396,6 +355,60 @@ const closeChat = () => {
   emit('close')
 }
 
+const openMediaPicker = () => {
+  mediaInputRef.value?.click()
+}
+
+const onMediaInputChange = (event: Event) => {
+  const input = event.target as HTMLInputElement
+  const nativeFile = input.files?.[0]
+
+  if (!nativeFile) {
+    clearImagePreview()
+    return
+  }
+
+  // 驗證文件類型
+  const isImage = nativeFile.type.startsWith('image/')
+  const isVideo = nativeFile.type.startsWith('video/')
+
+  if (!isImage && !isVideo) {
+    message.error('請選擇圖片或影片文件')
+    input.value = ''
+    return
+  }
+
+  // 驗證文件大小
+  const maxSize = isVideo ? CHAT_UPLOAD_LIMITS.MAX_VIDEO_BYTES : CHAT_UPLOAD_LIMITS.MAX_IMAGE_BYTES
+  if (nativeFile.size > maxSize) {
+    message.error(isVideo ? '影片大小不能超過 50MB' : '圖片大小不能超過 10MB')
+    input.value = ''
+    return
+  }
+
+  // 更新預覽
+  if (previewMedia.value && previewMedia.value.startsWith('blob:')) {
+    URL.revokeObjectURL(previewMedia.value)
+  }
+
+  selectedFile.value = nativeFile
+  previewType.value = isVideo ? 'video' : 'image'
+  previewMedia.value = URL.createObjectURL(nativeFile)
+}
+
+// 清除媒體預覽
+const clearImagePreview = () => {
+  if (previewMedia.value && previewMedia.value.startsWith('blob:')) {
+    URL.revokeObjectURL(previewMedia.value)
+  }
+  previewMedia.value = null
+  previewType.value = null
+  selectedFile.value = null
+  if (mediaInputRef.value) {
+    mediaInputRef.value.value = ''
+  }
+}
+
 const sendMessage = async () => {
   if (!messageContent.value.trim() && !selectedFile.value) {
     message.error('請輸入消息或選擇圖片/影片')
@@ -409,33 +422,17 @@ const sendMessage = async () => {
     if (selectedFile.value) {
       isUploading.value = true
       uploadProgress.value = 0
+      const uploadResult = await chatService.uploadMedia(selectedFile.value, (progress) => {
+        uploadProgress.value = progress
+      })
       
-      // 根據文件大小選擇上傳方式
-      const isLargeFile = selectedFile.value.size > 5 * 1024 * 1024  // 改成 5MB 方便測試
-      
-      let uploadResult
-      if (isLargeFile) {
-        // 大文件使用分片上傳
-        uploadResult = await chatService.uploadMediaChunked(
-          selectedFile.value,
-          (progress) => {
-            uploadProgress.value = progress
-          }
-        )
-      } else {
-        // 小文件直接上傳
-        uploadResult = await chatService.uploadImage(selectedFile.value)
-      }
-      
-      if (!(uploadResult as any).success) {
-        message.error((uploadResult as any).message || '媒體上傳失敗')
-        isUploading.value = false
-        uploadProgress.value = 0
+      if (!uploadResult.success) {
+        message.error(uploadResult.message || '媒體上傳失敗')
         return
       }
-      imageUrl = (uploadResult as any).data?.mediaUrl || (uploadResult as any).data?.imageUrl
-      isUploading.value = false
-      uploadProgress.value = 0
+      
+      imageUrl = uploadResult.data?.mediaUrl
+      message.success('媒體上傳成功')
     }
 
     const content = messageContent.value.trim()
@@ -597,18 +594,6 @@ watch(
 )
 
 onMounted(() => {
-  // 初始化 simple-uploader.js
-  try {
-    const Uploader = (window as any).Uploader
-    if (!Uploader) {
-      import('simple-uploader.js').then((module) => {
-        ;(window as any).Uploader = module.default
-      })
-    }
-  } catch (error) {
-    console.error('初始化 Uploader 失敗:', error)
-  }
-
   privateMissedMessagesListener = (events: any[]) => {
     if (!Array.isArray(events)) {
       return
@@ -1024,8 +1009,46 @@ onUnmounted(() => {
 }
 
 .input-controls {
+  .btn-upload-media {
+    padding: 8px 14px;
+    border: 1px solid #d9d9d9;
+    background: white;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+    transition: all 0.2s;
+    white-space: nowrap;
+    font-weight: 500;
+
+    .upload-text {
+      color: #666;
+    }
+
+    &:hover {
+      border-color: #667eea;
+      background: linear-gradient(135deg, rgba(102, 126, 234, 0.1) 0%, rgba(168, 148, 199, 0.1) 100%);
+      color: #667eea;
+
+      .upload-text {
+        color: #667eea;
+      }
+    }
+
+    &:active {
+      transform: scale(0.95);
+    }
+  }
+
   display: flex;
   align-items: center;
+}
+
+.file-input-hidden {
+  display: none;
 }
 
 .btn-icon-input {
