@@ -1,9 +1,9 @@
 export const CHAT_UPLOAD_LIMITS = Object.freeze({
-  DIRECT_UPLOAD_MAX_BYTES: 6 * 1024 * 1024,
-  CHUNK_SIZE_BYTES: 4 * 1024 * 1024,
-  MAX_CONCURRENT_CHUNKS: 3,
-  MAX_IMAGE_BYTES: 10 * 1024 * 1024,
-  MAX_VIDEO_BYTES: 50 * 1024 * 1024
+  DIRECT_UPLOAD_MAX_BYTES: 6 * 1024 * 1024, // 6MB 以下直接上傳
+  CHUNK_SIZE_BYTES: 4 * 1024 * 1024, // 4MB 分片大小
+  MAX_CONCURRENT_CHUNKS: 3, // 同時最多 3 個分片上傳
+  MAX_IMAGE_BYTES: 10 * 1024 * 1024, // 10MB 圖片上傳限制
+  MAX_VIDEO_BYTES: 50 * 1024 * 1024 // 50MB 視頻上傳限制
 })
 
 export const useChatService = () => {
@@ -325,7 +325,7 @@ export const useChatService = () => {
       mergeFormData.append('totalChunks', String(totalChunks))
       mergeFormData.append('fileName', file.name)
 
-        const mergeResult = await post('/api/chat/upload', mergeFormData)
+      const mergeResult = await post('/api/chat/upload', mergeFormData)
 
       if (!mergeResult.success) {
         return {
