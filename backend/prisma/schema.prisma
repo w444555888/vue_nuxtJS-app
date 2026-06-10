@@ -23,6 +23,7 @@ model User {
   sentPrivateMessages PrivateMessage[] @relation("sender")
   receivedPrivateMessages PrivateMessage[] @relation("receiver")
   refreshTokens RefreshToken[]
+  auditLogs AuditLog[]
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -128,4 +129,25 @@ model RefreshToken {
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   expiresAt DateTime
   createdAt DateTime @default(now())
+}
+
+// 安全審計日誌
+model AuditLog {
+  id        Int      @id @default(autoincrement())
+  userId    Int?
+  user      User?    @relation(fields: [userId], references: [id], onDelete: SetNull)
+  action    String
+  result    String
+  resource  String?
+  endpoint  String?
+  method    String?
+  ip        String?
+  userAgent String?
+  reason    String?
+  metadata  Json?
+  createdAt DateTime @default(now())
+
+  @@index([createdAt])
+  @@index([userId])
+  @@index([action])
 }

@@ -10,6 +10,7 @@ import {
   refreshAccessToken,
   logoutUser,
 } from "../services/auth.js";
+import { getAuditContextFromRequest, writeAuditLog } from "../services/audit.js";
 
 const router = express.Router();
 
@@ -17,13 +18,40 @@ const router = express.Router();
 router.post("/register", async (req, res) => {
   const { email, username, password } = req.body;
   if (!email || !username || !password) {
+    const context = getAuditContextFromRequest(req);
+    await writeAuditLog({
+      action: "AUTH_REGISTER",
+      result: "FAILURE",
+      reason: "Missing required fields",
+      resource: "auth",
+      metadata: { email, username },
+      ...context,
+    });
     return errorResponse(res, "缺少必填字段", 400);
   }
   try {
     const result = await registerUser({ email, username, password });
+    const context = getAuditContextFromRequest(req);
+    await writeAuditLog({
+      action: "AUTH_REGISTER",
+      result: "SUCCESS",
+      userId: result.user.id,
+      resource: "auth",
+      metadata: { email: result.user.email, username: result.user.username },
+      ...context,
+    });
     return successResponse(res, result, "註冊成功", 201);
   } catch (error) {
     console.error("註冊失敗:", error);
+    const context = getAuditContextFromRequest(req);
+    await writeAuditLog({
+      action: "AUTH_REGISTER",
+      result: "FAILURE",
+      reason: error.message,
+      resource: "auth",
+      metadata: { email, username },
+      ...context,
+    });
     return errorResponse(res, error, error.status || 500);
   }
 });
@@ -32,13 +60,40 @@ router.post("/register", async (req, res) => {
 router.post("/login", async (req, res) => {
   const { email, password } = req.body;
   if (!email || !password) {
+    const context = getAuditContextFromRequest(req);
+    await writeAuditLog({
+      action: "AUTH_LOGIN",
+      result: "FAILURE",
+      reason: "Missing required fields",
+      resource: "auth",
+      metadata: { email },
+      ...context,
+    });
     return errorResponse(res, "缺少必填字段", 400);
   }
   try {
     const result = await loginUser({ email, password });
+    const context = getAuditContextFromRequest(req);
+    await writeAuditLog({
+      action: "AUTH_LOGIN",
+      result: "SUCCESS",
+      userId: result.user.id,
+      resource: "auth",
+      metadata: { email: result.user.email, username: result.user.username },
+      ...context,
+    });
     return successResponse(res, result, "登入成功", 200);
   } catch (error) {
     console.error("登入失敗:", error);
+    const context = getAuditContextFromRequest(req);
+    await writeAuditLog({
+      action: "AUTH_LOGIN",
+      result: "FAILURE",
+      reason: error.message,
+      resource: "auth",
+      metadata: { email },
+      ...context,
+    });
     return errorResponse(res, error, error.status || 500);
   }
 });
@@ -83,18 +138,43 @@ router.post("/verify", verifyToken, (req, res) => {
 router.post("/refresh", async (req, res) => {
   const { refreshToken } = req.body;
   if (!refreshToken) {
+    const context = getAuditContextFromRequest(req);
+    await writeAuditLog({
+      action: "AUTH_REFRESH",
+      result: "FAILURE",
+      reason: "Missing refresh token",
+      resource: "auth",
+      ...context,
+    });
     return errorResponse(res, "缺少 Refresh Token", 400);
   }
   try {
     const tokens = await refreshAccessToken(refreshToken);
+    const context = getAuditContextFromRequest(req);
+    await writeAuditLog({
+      action: "AUTH_REFRESH",
+      result: "SUCCESS",
+      userId: tokens.userId,
+      resource: "auth",
+      ...context,
+    });
+    const { userId, ...tokenPayload } = tokens;
     return successResponse(
       res,
-      tokens,
+      tokenPayload,
       "Token 刷新成功",
       200
     );
   } catch (error) {
     console.error("Token 刷新失敗:", error);
+    const context = getAuditContextFromRequest(req);
+    await writeAuditLog({
+      action: "AUTH_REFRESH",
+      result: "FAILURE",
+      reason: error.message,
+      resource: "auth",
+      ...context,
+    });
     return errorResponse(res, error, error.status || 500);
   }
 });
@@ -103,9 +183,26 @@ router.post("/refresh", async (req, res) => {
 router.post("/logout", verifyToken, async (req, res) => {
   try {
     await logoutUser(req.user.id);
+    const context = getAuditContextFromRequest(req);
+    await writeAuditLog({
+      action: "AUTH_LOGOUT",
+      result: "SUCCESS",
+      userId: req.user.id,
+      resource: "auth",
+      ...context,
+    });
     return successResponse(res, {}, "登出成功", 200);
   } catch (error) {
     console.error("登出失敗:", error);
+    const context = getAuditContextFromRequest(req);
+    await writeAuditLog({
+      action: "AUTH_LOGOUT",
+      result: "FAILURE",
+      userId: req.user?.id || null,
+      reason: error.message,
+      resource: "auth",
+      ...context,
+    });
     return errorResponse(res, error, error.status || 500);
   }
 });

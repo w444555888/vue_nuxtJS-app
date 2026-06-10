@@ -184,6 +184,7 @@ export const refreshAccessToken = async (refreshTokenFromClient) => {
   const newRefreshToken = await generateRefreshToken(user.id);
 
   return {
+    userId: user.id,
     accessToken: newAccessToken,
     refreshToken: newRefreshToken,
   };
