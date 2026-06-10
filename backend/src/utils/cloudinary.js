@@ -32,16 +32,34 @@ export const uploadImageBuffer = (buffer, options = {}) => {
   ensureCloudinaryConfig();
 
   return new Promise((resolve, reject) => {
-    const stream = cloudinary.uploader.upload_stream(
+    const configuredChunkSize = Number(process.env.CLOUDINARY_CHUNK_SIZE);
+    const chunkSize = Number.isFinite(configuredChunkSize) && configuredChunkSize >= 5000000
+      ? configuredChunkSize
+      : 6000000;
+    let settled = false;
+
+    const stream = cloudinary.uploader.upload_chunked_stream(
       {
         folder: process.env.CLOUDINARY_FOLDER || "chat-images",
         resource_type: "auto",
+        chunk_size: chunkSize,
         ...options,
       },
       (error, result) => {
+        if (settled) {
+          return;
+        }
+
         if (error) {
+          settled = true;
           return reject(error);
         }
+
+        if (!result || result.done === false) {
+          return;
+        }
+
+        settled = true;
         return resolve(result);
       }
     );
