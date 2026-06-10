@@ -17,6 +17,28 @@ export interface ApiResponse<T = any> {
   error?: string
 }
 
+// 控制 token 刷新進行中，防止多個請求同時觸發刷新
+let isRefreshing = false
+let failedQueue: any[] = []
+
+/**
+ * 處理刷新 token 隊列
+ * @param error 錯誤信息
+ * @param token 新的 access token
+ */
+const processQueue = (error: any, token: string | null = null) => {
+  failedQueue.forEach(prom => {
+    if (error) {
+      prom.reject(error)
+    } else {
+      prom.resolve(token)
+    }
+  })
+  
+  isRefreshing = false
+  failedQueue = []
+}
+
 // axios 實例
 const createHttpClient = (): AxiosInstance => {
   const config = useRuntimeConfig()
@@ -48,13 +70,13 @@ const createHttpClient = (): AxiosInstance => {
     return config
   })
 
-  // 攔截器 - 統一錯誤處理
+  // 攔截器 - 統一錯誤處理 + Token 自動刷新
   instance.interceptors.response.use(
     (response: any) => {
       return response  
     },
     (error: AxiosError) => {
-      // 統一錯誤格式
+      const originalRequest: any = error.config
       const statusCode = error.response?.status || 500
       const errorData = error.response?.data as any
       const errorResponse: ApiResponse = {
@@ -64,12 +86,60 @@ const createHttpClient = (): AxiosInstance => {
         data: null
       }
 
-      // 401 未授權 - 清除認證並跳轉登入頁
-      if (statusCode === 401) {
-        errorResponse.message = 'Token 已過期，請重新登入'
-        authStore.clearAuth()
-        router.push('/login')
-        return Promise.reject(errorResponse)
+      // 401 未授權 - 嘗試使用 refresh token 更新 access token
+      if (statusCode === 401 && !originalRequest._retry) {
+        // 避免對 /refresh 和 /logout 端點重試
+        if (originalRequest.url?.includes('/auth/refresh') || originalRequest.url?.includes('/auth/logout')) {
+          authStore.clearAuth()
+          router.push('/login')
+          return Promise.reject(errorResponse)
+        }
+
+        // 如果正在刷新 token，將當前請求加入隊列等待刷新完成
+        if (isRefreshing) {
+          return new Promise((resolve, reject) => {
+            failedQueue.push({ resolve, reject })
+          }).then(token => {
+            if (token) {
+              originalRequest.headers.Authorization = `Bearer ${token}`
+              return instance(originalRequest)
+            }
+          })
+        }
+
+        originalRequest._retry = true
+        isRefreshing = true
+
+        // 發送刷新 token 請求
+        return new Promise((resolve, reject) => {
+          instance.post('/api/auth/refresh', {
+            refreshToken: authStore.refreshToken
+          })
+            .then(response => {
+              const { data } = response
+              if (data && data.data) {
+                const { accessToken, refreshToken } = data.data
+                
+                // 更新 store 中的 token
+                authStore.updateAccessToken(accessToken)
+                authStore.updateRefreshToken(refreshToken)
+                
+                // 用新 token 重試原請求
+                originalRequest.headers.Authorization = `Bearer ${accessToken}`
+                processQueue(null, accessToken)
+                resolve(instance(originalRequest))
+              } else {
+                throw new Error('Token refresh failed')
+              }
+            })
+            .catch(err => {
+              // 刷新失敗，清除認證並跳轉登入
+              authStore.clearAuth()
+              router.push('/login')
+              processQueue(err, null)
+              reject(err)
+            })
+        })
       }
 
       // 403 禁止訪問 

@@ -7,6 +7,8 @@ import {
   getCurrentUser,
   updateUserAvatar,
   getVerifyResult,
+  refreshAccessToken,
+  logoutUser,
 } from "../services/auth.js";
 
 const router = express.Router();
@@ -75,6 +77,37 @@ router.post("/verify", verifyToken, (req, res) => {
     userId: result.userId,
     username: result.username,
   });
+});
+
+// 刷新 Access Token
+router.post("/refresh", async (req, res) => {
+  const { refreshToken } = req.body;
+  if (!refreshToken) {
+    return errorResponse(res, "缺少 Refresh Token", 400);
+  }
+  try {
+    const tokens = await refreshAccessToken(refreshToken);
+    return successResponse(
+      res,
+      tokens,
+      "Token 刷新成功",
+      200
+    );
+  } catch (error) {
+    console.error("Token 刷新失敗:", error);
+    return errorResponse(res, error, error.status || 500);
+  }
+});
+
+// 登出
+router.post("/logout", verifyToken, async (req, res) => {
+  try {
+    await logoutUser(req.user.id);
+    return successResponse(res, {}, "登出成功", 200);
+  } catch (error) {
+    console.error("登出失敗:", error);
+    return errorResponse(res, error, error.status || 500);
+  }
 });
 
 export default router;

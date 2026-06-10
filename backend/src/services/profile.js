@@ -71,7 +71,7 @@ export const updateMyProfile = async (userId, payload) => {
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
     if (!isPasswordValid) {
-      throw createError("舊密碼不正確", 401);
+      throw createError("舊密碼不正確", 400);
     }
 
     if (newPassword.length < 6) {

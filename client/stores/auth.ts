@@ -5,6 +5,7 @@ import { getFromStorage, setToStorage, removeFromStorage } from '~/utils/environ
 export const useAuthStore = defineStore('auth', () => {
   const user = ref<any>(null)
   const token = ref<string | null>(null)
+  const refreshToken = ref<string | null>(null)
   const isAuthenticated = computed(() => !!token.value)
   const isLoading = ref(false)
 
@@ -12,10 +13,15 @@ export const useAuthStore = defineStore('auth', () => {
   const initAuth = () => {
     try {
       const storedToken = getFromStorage('auth_token')
+      const storedRefreshToken = getFromStorage('auth_refresh_token')
       const storedUser = getFromStorage('auth_user')
       
       if (storedToken) {
         token.value = storedToken
+      }
+      
+      if (storedRefreshToken) {
+        refreshToken.value = storedRefreshToken
       }
       
       if (storedUser) {
@@ -26,12 +32,14 @@ export const useAuthStore = defineStore('auth', () => {
     }
   }
 
-  // 設定使用者和 Token
-  const setAuth = (newUser: any, newToken: string) => {
+  // 設定使用者和 Tokens (Access Token + Refresh Token)
+  const setAuth = (newUser: any, newToken: string, newRefreshToken: string) => {
     user.value = newUser
     token.value = newToken
+    refreshToken.value = newRefreshToken
     
     setToStorage('auth_token', newToken)
+    setToStorage('auth_refresh_token', newRefreshToken)
     setToStorage('auth_user', JSON.stringify(newUser))
   }
 
@@ -41,12 +49,26 @@ export const useAuthStore = defineStore('auth', () => {
     setToStorage('auth_user', JSON.stringify(newUser))
   }
 
+  // 更新 Access Token
+  const updateAccessToken = (newToken: string) => {
+    token.value = newToken
+    setToStorage('auth_token', newToken)
+  }
+
+  // 更新 Refresh Token (輪換時)
+  const updateRefreshToken = (newRefreshToken: string) => {
+    refreshToken.value = newRefreshToken
+    setToStorage('auth_refresh_token', newRefreshToken)
+  }
+
   // 清除認證
   const clearAuth = () => {
     user.value = null
     token.value = null
+    refreshToken.value = null
     
     removeFromStorage('auth_token')
+    removeFromStorage('auth_refresh_token')
     removeFromStorage('auth_user')
   }
 
@@ -58,11 +80,14 @@ export const useAuthStore = defineStore('auth', () => {
   return {
     user,
     token,
+    refreshToken,
     isAuthenticated,
     isLoading,
     initAuth,
     setAuth,
     setUser,
+    updateAccessToken,
+    updateRefreshToken,
     clearAuth,
     setLoading
   }

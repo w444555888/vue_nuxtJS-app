@@ -14,7 +14,7 @@ export const useAuthService = () => {
       })
 
       if (result.success) {
-        authStore.setAuth(result.data.user, result.data.token)
+        authStore.setAuth(result.data.user, result.data.accessToken, result.data.refreshToken)
         return { success: true, data: result.data, message: result.message }
       } else {
         return { success: false, message: result.message || result.error || '註冊失敗，請重試' }
@@ -40,7 +40,7 @@ export const useAuthService = () => {
       })
 
       if (result.success) {
-        authStore.setAuth(result.data.user, result.data.token)
+        authStore.setAuth(result.data.user, result.data.accessToken, result.data.refreshToken)
         return { success: true, data: result.data, message: result.message }
       } else {
         return { success: false, message: result.message || result.error || '登入失敗，請检查郵箱和密碼' }
@@ -57,12 +57,21 @@ export const useAuthService = () => {
   }
 
   // 登出
-  const logout = () => {
-    const socket = useSocket()
-    socket.disconnectSocket()
-    
-    authStore.clearAuth()
-    router.push('/login')
+  const logout = async () => {
+    try {
+      authStore.setLoading(true)
+      // 通知後端刪除 refresh token
+      await post('/api/auth/logout', {})
+    } catch (error) {
+      console.error('登出 API 失敗:', error)
+    } finally {
+      const socket = useSocket()
+      socket.disconnectSocket()
+      
+      authStore.clearAuth()
+      router.push('/login')
+      authStore.setLoading(false)
+    }
   }
 
   return { register, login, logout }
