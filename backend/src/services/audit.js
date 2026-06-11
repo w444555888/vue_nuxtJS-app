@@ -3,6 +3,7 @@ import prisma from "../prisma.js";
 const getClientIp = (req) => {
   const forwardedFor = req.headers["x-forwarded-for"];
   if (typeof forwardedFor === "string" && forwardedFor.length > 0) {
+    // X-Forwarded-For 可能包含多個 IP，取第一個（原始客戶端 IP）
     return forwardedFor.split(",")[0].trim();
   }
 
@@ -44,7 +45,7 @@ export const writeAuditLog = async ({
       },
     });
   } catch (error) {
-    // 審計日誌不應影響主流程
+    // 審計日誌寫入失敗不應影響主要業務流程，因此僅記錄錯誤，不拋出
     console.error("Audit log write failed:", error.message);
   }
 };

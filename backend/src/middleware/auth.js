@@ -31,19 +31,6 @@ export const verifyToken = (req, res, next) => {
       resource: "auth",
       ...context,
     });
-    return res.status(403).json({ error: "Access Token 無效或已過期" });
-  }
-};
-
-// 可選 - 允許 Refresh Token 過期但仍允許刷新
-export const verifyRefreshToken = (token) => {
-  try {
-    const decoded = jwt.verify(
-      token,
-      process.env.REFRESH_TOKEN_SECRET
-    );
-    return decoded;
-  } catch (error) {
-    return null;
+    return res.status(401).json({ error: "Access Token 無效或已過期" });
   }
 };

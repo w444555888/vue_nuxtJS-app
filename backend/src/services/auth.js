@@ -8,12 +8,12 @@ const createError = (message, status = 400) => {
   return error;
 };
 
-// 生成 Access Token (15分鐘)
+// 生成 Access Token (30分鐘)
 const generateAccessToken = (userId, username) => {
   return jwt.sign(
     { id: userId, username },
     process.env.JWT_SECRET,
-    { expiresIn: process.env.ACCESS_TOKEN_EXPIRY || "15m" }
+    { expiresIn: process.env.ACCESS_TOKEN_EXPIRY || "30m" }
   );
 };
 
