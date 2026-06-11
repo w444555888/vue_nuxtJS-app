@@ -13,6 +13,7 @@ import aiRoutes from "./routes/ai.js";
 
 const app = express();
 const server = http.createServer(app);
+// Socket.IO 與 HTTP 共用同一個 server，會自動從 polling 升級到 WebSocket。
 const io = new SocketIO(server, {
   cors: {
     origin: process.env.CORS_ORIGIN || "http://localhost:3000",

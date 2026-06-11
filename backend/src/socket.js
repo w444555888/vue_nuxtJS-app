@@ -1,6 +1,19 @@
 import prisma from "./prisma.js";
 
+/**
+ * Socket.IO 事件處理器
+ * - 負責處理 WebSocket 連線、消息傳遞、聊天室管理等功能。
+ * - 使用 Map 來追蹤線上使用者和他們所在的聊天室，以便在需要時進行廣播。
+ * - 提供斷線補償機制，讓客戶端在重連後能夠獲取斷線期間的漏訊。
+ * - 支援私聊功能，使用專用的對話ID來管理兩人之間的消息流。
+ * - 事件格式統一，方便前端處理和展示。
+ * - 錯誤處理和權限驗證，確保只有合法用戶能夠執行相應的操作。
+ * - 透過 ack 機制提供操作結果反饋，讓客戶端能夠即時獲知操作是否成功。
+ */
+
+// onlineUsers 以 socketId 為鍵，記錄這條連線對應的 userId 和 roomId
 const onlineUsers = new Map(); // socketId -> { userId, roomId }
+// userConnections：以 user 為主鍵，記錄這個使用者目前對應哪條 socket
 const userConnections = new Map(); // userId -> socketId
 
 const buildPrivateConversationId = (userIdA, userIdB) => {
@@ -84,7 +97,10 @@ export default (io) => {
       // 記錄線上使用者
       onlineUsers.set(socket.id, { userId: authenticatedUserId, roomId });
 
-      // 補償斷線期間遺失的訊息
+      // 斷線補償流程：
+      // 1) 客戶端帶 lastSeq（最後收到的序號）進來
+      // 2) 後端查出 id > lastSeq 的漏訊一次補回
+      // 3) 補完後，後續新訊息走一般 WS 即時推送
       if (Number.isInteger(lastSeq) && lastSeq > 0) {
         const missedMessages = await prisma.message.findMany({
           where: {
@@ -299,6 +315,7 @@ export default (io) => {
       const conversationId = buildPrivateConversationId(authenticatedUserId, friendId);
       socket.join(conversationId);
 
+      // 私聊採用同樣機制：用 lastSeq 補漏，再接回即時事件流。
       if (Number.isInteger(lastSeq) && lastSeq > 0) {
         const missedMessages = await prisma.privateMessage.findMany({
           where: {

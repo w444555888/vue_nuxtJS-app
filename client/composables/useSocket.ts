@@ -73,7 +73,7 @@ export const useSocket = () => {
 
   const socketUrl = config.public.socketUrl || 'http://127.0.0.1:3001'
 
-  // 初始化 Socket 連接 
+  // 初始化 Socket 連接（WebSocket 優先；連線中斷時由 Socket.IO 負責重連）
   const initSocket = () => {
     const authStore = useAuthStore()
     const currentToken = authStore.token
@@ -186,7 +186,7 @@ export const useSocket = () => {
     }
   }
 
-  // 加入聊天室
+  // Snapshot + WS：加入時帶上 lastSeq，讓後端先補發遺失事件再接即時流。
   const joinRoom = (userId: number, roomId: number, lastSeq: number = 0) => {
     emitIfConnected('join_room', { userId, roomId, lastSeq })
   }
@@ -325,6 +325,7 @@ export const useSocket = () => {
   }
 
   const joinPrivateChatWithSeq = (userId: number, friendId: number, lastSeq: number = 0) => {
+    // Snapshot + WS：私聊重入時使用 lastSeq 續傳未收消息。
     emitIfConnected('join_private_chat', { userId, friendId, lastSeq })
   }
 

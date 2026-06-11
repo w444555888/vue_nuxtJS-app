@@ -276,6 +276,7 @@ let connectListener: (() => void) | null = null
 const joinedRoomId = ref<number | null>(null)
 const messageIdSet = ref<Set<number>>(new Set())
 
+// 以目前訊息序號最大值作為 snapshot 游標，提供斷線後補償。
 const getLastSeq = () => {
   return messages.value.reduce((maxSeq, item) => {
     const seqValue = Number(item.seq ?? item.id ?? 0)
@@ -345,6 +346,7 @@ const joinRoomWithRecovery = () => {
     return
   }
 
+  // Snapshot + WS：先用 lastSeq 對齊歷史缺口，再持續接收即時事件。
   joinRoom(authStore.user.id, props.room.id, getLastSeq())
   joinedRoomId.value = props.room.id
 }

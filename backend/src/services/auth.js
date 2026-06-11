@@ -143,6 +143,9 @@ export const getVerifyResult = (user) => ({
 
 // 使用 Refresh Token 生成新的 Access Token
 export const refreshAccessToken = async (refreshTokenFromClient) => {
+  // Sliding Session（滑動會話）：
+  // 1) 使用者持續活躍時，每次 refresh 都會輪換並延長 refresh token 有效期。
+  // 2) 使用者不活躍超過 refresh token 期限，將無法再 refresh，必須重新登入。
   // 驗證 refresh token 簽名和有效性
   let decoded;
   try {

@@ -207,6 +207,7 @@ let privateMessageDeletedListener: ((data: any) => void) | null = null
 let connectListener: (() => void) | null = null
 const messageIdSet = ref<Set<number>>(new Set())
 
+// 以 seq 當作 snapshot 游標，讓私聊重連可補回遺失事件。
 const getLastSeq = () => {
   return messages.value.reduce((maxSeq, item) => {
     const seqValue = Number(item.seq ?? item.id ?? 0)
@@ -288,6 +289,7 @@ const applyDeletedPrivateMessage = (data: any) => {
 }
 
 const joinPrivateWithRecovery = () => {
+  // Snapshot + WS：私聊先補差異，再回到即時推送。
   socket.joinPrivateChatWithSeq(props.currentUserId, props.friend.id, getLastSeq())
 }
 
