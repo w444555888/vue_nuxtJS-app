@@ -584,39 +584,6 @@ export default (io) => {
       }
     });
 
-    // 標記私聊為已讀
-    socket.on("mark_private_as_read", async (data, ack) => {
-      const { friendId } = data;
-
-      try {
-        await prisma.privateMessage.updateMany({
-          where: {
-            senderId: friendId,
-            receiverId: authenticatedUserId,
-            isRead: false,
-          },
-          data: { isRead: true },
-        });
-
-        const conversationId = buildPrivateConversationId(authenticatedUserId, friendId);
-        io.to(conversationId).emit("private_messages_read", {
-          userId: friendId,
-          friendId: authenticatedUserId,
-        });
-
-        ack?.({ success: true });
-
-        console.log(`用戶 ${authenticatedUserId} 標記來自 ${friendId} 的消息為已讀`);
-      } catch (error) {
-        console.error("標記已讀失敗:", error);
-        if (ack) {
-          ack({ success: false, message: "標記失敗" });
-        } else {
-          socket.emit("error", { message: "標記失敗" });
-        }
-      }
-    });
-
     // 使用者離開
     socket.on("disconnect", () => {
       const user = onlineUsers.get(socket.id);

@@ -323,7 +323,7 @@ export const getPrivateConversations = async (userId) => {
       return; // 只取該對話的最新消息
     }
 
-    // 计算未讀消息數 (只在首次迭代時計算，因為已排序)
+    // 計算未讀消息數 (只在首次迭代時計算，因為已排序)
     const conv = conversationMap.get(key);
     if (msg.senderId !== userId && !msg.isRead) {
       conv.unreadCount += 1;

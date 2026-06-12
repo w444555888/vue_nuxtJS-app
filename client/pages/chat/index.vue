@@ -708,13 +708,17 @@ const handlePrivateMessageReceived = async (payload: any) => {
   }
 }
 
+const handlePrivateMessagesRead = async () => {
+  await loadPrivateConversations()
+}
+
 // 生命周期
 onMounted(async () => {
   syncMobileView()
   window.addEventListener('resize', syncMobileView)
 
   // 初始化Socket連接
-  socket.initSocket()
+  socket.initSocket()  
   
   // 設置用戶ID用於私聊
   if (authStore.user?.id) {
@@ -722,6 +726,7 @@ onMounted(async () => {
   }
 
   socket.onPrivateMessageReceived(handlePrivateMessageReceived)
+  socket.onPrivateMessagesRead(handlePrivateMessagesRead)
 
   // 獲取聊天室列表
   const rooms = await chatService.fetchRooms()
@@ -742,6 +747,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   socket.offPrivateMessageReceived(handlePrivateMessageReceived)
+  socket.offPrivateMessagesRead(handlePrivateMessagesRead)
   window.removeEventListener('resize', syncMobileView)
 })
 </script>
