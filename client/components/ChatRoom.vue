@@ -24,6 +24,7 @@
         <button @click="emit('invite')" class="btn-icon-small" title="邀請好友">
           +
         </button>
+        <button @click="closeChat" class="btn-icon-small" title="關閉群組聊天">✕</button>
       </div>
     </div>
 
@@ -223,8 +224,14 @@ const isVideoUrl = (url?: string) => {
 
 const emit = defineEmits<{
   invite: []
+  close: []
   messageSent: []
 }>()
+
+const closeChat = () => {
+  hideContextMenu()
+  emit('close')
+}
 
 const messages = ref<Message[]>([])
 const inputMessage = ref('')

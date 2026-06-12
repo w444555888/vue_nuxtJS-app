@@ -1,7 +1,31 @@
 <template>
   <div class="chat-container">
+    <div v-if="isMobileView && !isChatActive" class="mobile-nav">
+      <button
+        :class="['mobile-nav-btn', { active: mobileView === 'chats' }]"
+        @click="switchMobileView('chats')"
+      >
+        聊天
+      </button>
+      <button
+        :class="['mobile-nav-btn', { active: mobileView === 'friends' }]"
+        @click="switchMobileView('friends')"
+      >
+        好友
+      </button>
+      <button
+        :class="['mobile-nav-btn', { active: mobileView === 'profile' }]"
+        @click="switchMobileView('profile')"
+      >
+        我的
+      </button>
+    </div>
+
     <!-- 左侧面板 -->
-    <aside class="sidebar">
+    <aside
+      v-show="!isMobileView || (mobileView === 'chats' && !isChatActive)"
+      class="sidebar"
+    >
       <!-- 使用者資訊 -->
       <div class="sidebar-header">
         <div class="user-quick-info">
@@ -92,7 +116,7 @@
     </aside>
 
     <!-- 中间面板 -->
-    <main class="main-content">
+    <main v-show="!isMobileView || isChatActive" class="main-content">
       <div v-if="!selectedRoom && !selectedFriend" class="welcome-screen">
         <div class="welcome-content">
           <h1>歡迎來到聊天室</h1>
@@ -109,6 +133,7 @@
         :room="selectedRoom"
         :current-user-id="authStore.user?.id || 0"
         @invite="inviteFriendsToRoom(selectedRoom)"
+        @close="closeGroupChat"
         @message-sent="() => {}"
       />
 
@@ -123,7 +148,10 @@
     </main>
 
     <!-- 右侧面板 -->
-    <aside class="right-panel">
+    <aside
+      v-show="!isMobileView || ((mobileView === 'profile' || mobileView === 'friends') && !isChatActive)"
+      class="right-panel"
+    >
       <!-- Tab切换 -->
       <div class="panel-tabs">
         <button :class="['tab', { active: rightPanelTab === 'profile' }]"
@@ -356,6 +384,8 @@ const selectedRoom = ref<any>(null)
 const selectedFriend = ref<any>(null)
 const searchQuery = ref('')
 const rightPanelTab = ref<'profile' | 'friends'>('profile')
+const isMobileView = ref(false)
+const mobileView = ref<'chats' | 'friends' | 'profile'>('chats')
 const showAiModal = ref(false)
 const aiCustomerServiceRef = ref<any>(null)
 const openMenu = ref<any>(null)
@@ -396,6 +426,20 @@ const inviteTargetRoom = ref<any>(null)
 const roomMemberIds = ref<number[]>([])
 
 const chatStore = useChatStore()
+const isChatActive = computed(() => Boolean(selectedRoom.value || selectedFriend.value))
+
+const syncMobileView = () => {
+  isMobileView.value = window.innerWidth <= 768
+}
+
+const switchMobileView = (view: 'chats' | 'friends' | 'profile') => {
+  mobileView.value = view
+
+  if (view === 'friends' || view === 'profile') {
+    rightPanelTab.value = view
+  }
+}
+
 const filteredRooms = computed(() => {
   if (!searchQuery.value) return chatStore.rooms
   return chatStore.rooms.filter((room: any) => 
@@ -589,11 +633,28 @@ const logout = async () => {
 const startPrivateChat = (friend: any) => {
   selectedRoom.value = null
   selectedFriend.value = friend
+
+  if (isMobileView.value) {
+    mobileView.value = 'friends'
+  }
+}
+
+// 關閉群組聊天
+const closeGroupChat = () => {
+  selectedRoom.value = null
+
+  if (isMobileView.value) {
+    mobileView.value = 'chats'
+  }
 }
 
 // 關閉私聊
 const closePrivateChat = () => {
   selectedFriend.value = null
+
+  if (isMobileView.value) {
+    mobileView.value = 'friends'
+  }
 }
 
 
@@ -649,6 +710,9 @@ const handlePrivateMessageReceived = async (payload: any) => {
 
 // 生命周期
 onMounted(async () => {
+  syncMobileView()
+  window.addEventListener('resize', syncMobileView)
+
   // 初始化Socket連接
   socket.initSocket()
   
@@ -678,6 +742,7 @@ onMounted(async () => {
 
 onUnmounted(() => {
   socket.offPrivateMessageReceived(handlePrivateMessageReceived)
+  window.removeEventListener('resize', syncMobileView)
 })
 </script>
 
@@ -686,6 +751,8 @@ onUnmounted(() => {
   display: grid;
   grid-template-columns: 280px 1fr 320px;
   height: 100vh;
+  min-height: 100vh;
+  min-height: 100svh;
   gap: 0;
   background: #f5f7fa;
 
@@ -699,6 +766,39 @@ onUnmounted(() => {
 
   @media (max-width: 768px) {
     grid-template-columns: 1fr;
+    overflow: hidden;
+  }
+}
+
+.mobile-nav {
+  display: none;
+
+  @media (max-width: 768px) {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 8px;
+    padding: 10px 12px;
+    border-bottom: 1px solid #e8e8e8;
+    background: #fff;
+    z-index: 5;
+  }
+}
+
+.mobile-nav-btn {
+  border: 1px solid #d9d9d9;
+  background: #fff;
+  color: #666;
+  padding: 8px 10px;
+  border-radius: 8px;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s;
+
+  &.active {
+    color: #fff;
+    border-color: #667eea;
+    background: linear-gradient(135deg, #667eea 0%, #a894c7 100%);
   }
 }
 
@@ -712,7 +812,9 @@ onUnmounted(() => {
   box-shadow: 1px 0 3px rgba(0, 0, 0, 0.05);
 
   @media (max-width: 768px) {
-    display: none;
+    border-right: none;
+    min-height: 0;
+    height: calc(100svh - 60px);
   }
 }
 
@@ -1054,6 +1156,13 @@ onUnmounted(() => {
   border-left: 1px solid #e8e8e8;
   border-right: 1px solid #e8e8e8;
   overflow: hidden;
+
+  @media (max-width: 768px) {
+    border-left: none;
+    border-right: none;
+    min-height: 0;
+    height: 100svh;
+  }
 }
 
 .welcome-screen {
@@ -1340,7 +1449,10 @@ onUnmounted(() => {
   }
 
   @media (max-width: 768px) {
-    display: none;
+    display: flex;
+    border-left: none;
+    min-height: 0;
+    height: calc(100svh - 60px);
   }
 }
 
