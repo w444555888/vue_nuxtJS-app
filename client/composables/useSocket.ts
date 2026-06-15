@@ -47,6 +47,8 @@ const emitWithAck = <T = any>(event: string, payload: any, timeoutMs = DEFAULT_A
     }
 
     let finished = false
+    
+    // 超時還沒收到 ACK，就當失敗
     const timer = setTimeout(() => {
       if (!finished) {
         finished = true
@@ -55,6 +57,7 @@ const emitWithAck = <T = any>(event: string, payload: any, timeoutMs = DEFAULT_A
     }, timeoutMs)
 
     socket.emit(event, payload, (response: T) => {
+      // 若已結案（可能已超時），忽略晚到 ACK
       if (finished) {
         return
       }
