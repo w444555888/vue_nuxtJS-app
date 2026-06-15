@@ -84,14 +84,32 @@ CORS_ORIGIN="http://localhost:3000"
 ```
 
 ### 3️⃣ 初始化資料庫
-
 ```bash
-# 執行 Prisma 遷移（建立表格）
-npm run prisma:migrate
+npm install prisma --save-dev
+# 👉 安裝 Prisma CLI（開發工具）
 
-# 或生成客户端（如果 schema 已建立）
-npm run prisma:generate
-```
+npm install @prisma/client
+# 👉 安裝 Prisma Client（程式中操作 DB 用）
+npx prisma init
+# 👉 建立 prisma/schema.prisma + .env
+# 👉 只有「新專案」才用
+npx prisma generate
+# 👉 把 schema 轉成可用的 JS Client
+# 👉 沒做這步會 import PrismaClient 失敗
+npx prisma migrate dev --name init
+# 👉 開發環境用（你改 schema 就跑這個）
+
+# 會做：
+# 1. 比對 schema 改動
+# 2. 產生 migration 檔（會進 git）
+# 3. 更新資料庫
+# 4. 自動 generate Prisma Client
+npx prisma migrate deploy
+# 👉 只「執行 migration」
+# 👉 不會產生新 migration
+# 👉 不會分析 schema
+npx prisma studio
+# 👉 用瀏覽器看資料表
 
 ### 4️⃣ 啟動開發伺勑器
 
