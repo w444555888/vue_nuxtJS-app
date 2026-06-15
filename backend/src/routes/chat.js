@@ -20,6 +20,7 @@ import {
   markPrivateMessagesRead,
   handleMediaUpload,
 } from "../services/chat.js";
+import { triggerGroupStockAiReply } from "../services/groupStockAi.js";
 
 const router = express.Router();
 
@@ -113,6 +114,13 @@ router.post("/rooms/:roomId/messages", verifyToken, async (req, res) => {
       avatar: message.user.avatar,
       createdAt: message.createdAt,
       eventType: "message_created",
+    });
+
+    // 群組聊天才會進入這段自動回覆流程；私聊路由不會觸發。
+    triggerGroupStockAiReply({
+      roomId,
+      content: message.content,
+      io,
     });
 
     return successResponse(res, message, "消息已發送", 201);

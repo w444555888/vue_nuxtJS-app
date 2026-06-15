@@ -8,8 +8,11 @@ const router = express.Router();
 // AI 客服聊天 API
 router.post("/chat", verifyToken, async (req, res) => {
   try {
-    const { message } = req.body;
-    const response = await getAiChatResponse(message);
+    const { message, chatType } = req.body;
+    const response = await getAiChatResponse(message, {
+      chatType,
+      userId: req.user?.id,
+    });
     return successResponse(res, response, "回應成功");
   } catch (error) {
     console.error("AI 客服錯誤:", error);

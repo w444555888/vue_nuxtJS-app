@@ -2,8 +2,10 @@ export const useAiService = () => {
   const { post } = useHttpClient()
   const router = useRouter()
 
+  type AiChatType = 'group' | 'private' | 'general'
+
   // 發送消息到 AI 客服
-  const sendMessage = async (message: string) => {
+  const sendMessage = async (message: string, chatType: AiChatType = 'general') => {
     try {
       // 驗證消息內容
       if (!message || message.trim().length === 0) {
@@ -23,7 +25,8 @@ export const useAiService = () => {
       }
 
       const result = await post('/api/ai/chat', {
-        message: message.trim()
+        message: message.trim(),
+        chatType
       })
 
       return {

@@ -19,6 +19,27 @@
         </div>
         <div v-else class="message-content">
           {{ msg.text }}
+          <div v-if="msg.stockData" class="stock-card">
+            <div class="stock-header">
+              <strong>{{ msg.stockData.name || msg.stockData.symbol }}</strong>
+              <span>{{ msg.stockData.symbol }} / {{ msg.stockData.market }}</span>
+            </div>
+            <div class="stock-price-row">
+              <span class="label">最新價</span>
+              <span class="price">{{ formatPrice(msg.stockData.price) }}</span>
+            </div>
+            <div class="stock-price-row" :class="getDeltaClass(msg.stockData.change)">
+              <span class="label">漲跌</span>
+              <span>
+                {{ formatSigned(msg.stockData.change) }}
+                ({{ formatSigned(msg.stockData.changePercent) }}%)
+              </span>
+            </div>
+            <div class="stock-meta">
+              <span>來源：{{ msg.stockData.source || 'TWSE/TPEx' }}</span>
+              <span v-if="msg.stockData.asOf">時間：{{ formatAsOf(msg.stockData.asOf) }}</span>
+            </div>
+          </div>
         </div>
       </div>
 
@@ -73,6 +94,18 @@ interface Message {
   type: 'user' | 'ai'
   text: string
   timestamp?: Date
+  stockData?: StockData | null
+}
+
+interface StockData {
+  symbol: string
+  market: string
+  name?: string | null
+  price: number
+  change?: number | null
+  changePercent?: number | null
+  asOf?: string | null
+  source?: string | null
 }
 
 const aiService = useAiService()
@@ -81,6 +114,60 @@ const messages = ref<Message[]>([])
 const userMessage = ref('')
 const isLoading = ref(false)
 const errorMessage = ref('')
+
+const formatPrice = (value: number | null | undefined) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return 'N/A'
+  }
+  return Number(value).toFixed(2)
+}
+
+const formatSigned = (value: number | null | undefined) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return 'N/A'
+  }
+
+  const numericValue = Number(value)
+  const absText = Math.abs(numericValue).toFixed(2)
+  if (numericValue > 0) {
+    return `+${absText}`
+  }
+  if (numericValue < 0) {
+    return `-${absText}`
+  }
+  return absText
+}
+
+const formatAsOf = (value: string | null | undefined) => {
+  if (!value) {
+    return 'N/A'
+  }
+
+  const parsed = new Date(value)
+  if (Number.isNaN(parsed.getTime())) {
+    return value
+  }
+
+  return parsed.toLocaleString('zh-TW', {
+    hour12: false
+  })
+}
+
+const getDeltaClass = (value: number | null | undefined) => {
+  if (value === null || value === undefined || Number.isNaN(Number(value))) {
+    return ''
+  }
+
+  if (value > 0) {
+    return 'up'
+  }
+
+  if (value < 0) {
+    return 'down'
+  }
+
+  return 'flat'
+}
 
 const sendMessage = async () => {
   if (!userMessage.value.trim()) {
@@ -104,7 +191,8 @@ const sendMessage = async () => {
       messages.value.push({
         type: 'ai',
         text: result.data.message,
-        timestamp: result.data.timestamp || new Date()
+        timestamp: result.data.timestamp || new Date(),
+        stockData: result.data.stockData || null
       })
     } else {
       errorMessage.value = result.message || '無法獲取回應，請稍後重試'
@@ -292,6 +380,71 @@ defineExpose({
           max-width: 90%;
           padding: 8px 12px;
           font-size: 13px;
+        }
+
+        .stock-card {
+          margin-top: 10px;
+          border: 1px solid #dfe7f7;
+          background: #f6f9ff;
+          border-radius: 8px;
+          padding: 10px;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+
+          .stock-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: baseline;
+            gap: 8px;
+
+            strong {
+              font-size: 14px;
+              color: #1f2937;
+            }
+
+            span {
+              color: #4b5563;
+              font-size: 12px;
+            }
+          }
+
+          .stock-price-row {
+            display: flex;
+            justify-content: space-between;
+            gap: 8px;
+            color: #1f2937;
+
+            .label {
+              color: #4b5563;
+            }
+
+            .price {
+              font-size: 16px;
+              font-weight: 700;
+              letter-spacing: 0.2px;
+            }
+
+            &.up {
+              color: #b42318;
+            }
+
+            &.down {
+              color: #067647;
+            }
+
+            &.flat {
+              color: #475467;
+            }
+          }
+
+          .stock-meta {
+            display: flex;
+            flex-direction: column;
+            gap: 2px;
+            color: #667085;
+            font-size: 12px;
+          }
         }
       }
     }
