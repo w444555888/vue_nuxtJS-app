@@ -98,7 +98,7 @@ const SYSTEM_PROMPT = `你是一個專業的聊天軟體（Chat App）客服助�
 
 如果上述答案無法解決用戶的問題，請誠實地說：「我無法確定解決方法，建議您聯絡我們的技術客服團隊，請在設定中找到『聯絡客服』選項或發送郵件到 w444555888w@gmail.com」`;
 
-const MODEL_NAME = "gemini-2.5-flash";
+const MODEL_NAME = "gemini-3.1-flash-lite";
 
 const extractResponseText = (response) => {
   if (typeof response?.text === "string" && response.text.trim()) {
