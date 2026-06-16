@@ -7,7 +7,6 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 let mcpClient = null;
-let mcpTransport = null;
 
 const getServerScriptPath = () => path.join(__dirname, "stock-server.js");
 
@@ -35,15 +34,8 @@ const initializeMCPClient = async () => {
   await client.connect(transport);
 
   mcpClient = client;
-  mcpTransport = transport;
 
   return mcpClient;
-};
-
-export const listMCPTools = async () => {
-  const client = await initializeMCPClient();
-  const response = await client.listTools();
-  return response?.tools || [];
 };
 
 export const callMCPTool = async (toolName, args = {}) => {
@@ -67,16 +59,5 @@ export const callMCPTool = async (toolName, args = {}) => {
     return JSON.parse(firstText);
   } catch {
     return firstText;
-  }
-};
-
-export const stopMCPServer = async () => {
-  if (mcpClient) {
-    await mcpClient.close();
-    mcpClient = null;
-  }
-  if (mcpTransport) {
-    await mcpTransport.close();
-    mcpTransport = null;
   }
 };

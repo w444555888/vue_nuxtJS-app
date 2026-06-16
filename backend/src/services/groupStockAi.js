@@ -1,7 +1,8 @@
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import prisma from "../prisma.js";
-import { getAiChatResponse } from "./ai.js";
+import { generateAiText } from "./ai.js";
+import { mcpTools } from "./mcpTools.js";
 import { getTwStockQuote } from "./market/twStock.js";
 
 const BOT_EMAIL = process.env.STOCK_BOT_EMAIL || "stock-bot@chat.local";
@@ -90,6 +91,22 @@ const extractSymbol = (content) => {
   const text = String(content || "");
   const match = text.match(SYMBOL_REGEX);
   return match?.[1] || null;
+};
+
+const executeStockTool = async (symbol) => {
+  return mcpTools.execute("get_stock_quote", { symbol });
+};
+
+const buildStockFollowupPrompt = (content, quote, trackedSymbol) => {
+  return [
+    "你已收到台股工具查詢結果，請用繁體中文回覆。",
+    "回答規則：簡潔、不要杜撰數字、務必提到資料來源與資料時間。",
+    "若使用者問目標價、買賣點或投資建議，請明確說明無法保證預測，改提供風險觀點與可觀察指標。",
+    "最後一行固定加上：以上資訊僅供參考，非投資建議。",
+    `目前追蹤股票代號：${trackedSymbol || quote?.symbol || "未知"}`,
+    `使用者問題：${String(content || "").trim()}`,
+    `工具資料：${JSON.stringify(quote)}`,
+  ].join("\n");
 };
 
 const ensureBotUser = async () => {
@@ -282,17 +299,9 @@ export const triggerGroupStockAiReply = async ({ roomId, content, io }) => {
     let aiText = "";
     let replyPath = "gemini";
     try {
-      const aiResult = await getAiChatResponse(content, {
-        chatType: "group",
-        sessionId: `room:${roomId}`,
-      });
-      aiText = String(aiResult?.message || "").trim();
-
-      if (aiResult?.stockSessionActive) {
-        setRoomStockSession(roomId, aiResult?.trackedSymbol || symbol || null);
-      } else {
-        clearRoomStockSession(roomId);
-      }
+      const toolQuote = await executeStockTool(effectiveSymbol);
+      aiText = await generateAiText(buildStockFollowupPrompt(content, toolQuote, effectiveSymbol));
+      setRoomStockSession(roomId, effectiveSymbol);
     } catch (aiError) {
       console.error("群組股票 AI 回覆失敗，改用 fallback:", aiError?.message || aiError);
       replyPath = "fallback";
