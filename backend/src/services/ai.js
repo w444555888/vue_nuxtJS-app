@@ -20,9 +20,29 @@ const isGeminiPermissionDeniedError = (error) => {
   );
 };
 
+const isGeminiQuotaExceededError = (error) => {
+  const message = String(error?.message || "");
+  const status = Number(error?.status || 0);
+
+  return (
+    status === 429 ||
+    message.includes("RESOURCE_EXHAUSTED") ||
+    message.includes("Quota exceeded") ||
+    message.includes("rate-limits")
+  );
+};
+
 const buildGeneralFallbackReply = () => {
   return [
     "AI 客服目前暫時無法連線（模型金鑰需要更新），請稍後再試。",
+    "若問題緊急，建議先聯絡技術客服：w444555888w@gmail.com",
+  ].join("\n");
+};
+
+const buildGeneralQuotaFallbackReply = () => {
+  return [
+    "AI 客服目前請求量已達上限，暫時無法立即回覆。",
+    "請稍候約 1 分鐘後再試一次。",
     "若問題緊急，建議先聯絡技術客服：w444555888w@gmail.com",
   ].join("\n");
 };
@@ -121,6 +141,13 @@ const generateGeneralReply = async (ai, userMessage) => {
     if (isGeminiPermissionDeniedError(error)) {
       return {
         text: buildGeneralFallbackReply(),
+        latestToolData: null,
+      };
+    }
+
+    if (isGeminiQuotaExceededError(error)) {
+      return {
+        text: buildGeneralQuotaFallbackReply(),
         latestToolData: null,
       };
     }
