@@ -15,7 +15,7 @@ REFRESH_TOKEN_EXPIRY=7d       # Refresh Token 有效期：7天
 CORS_ORIGIN="http://localhost:3000"
 
 # Google Gemini API
-GOOGLE_API_KEY="AQ.Ab8RN6L3VnRKuE2pBuXFOHWRQ5AbnohD6YeMESS8EJva4vqAuw"
+GOOGLE_API_KEY=""
 
 # Cloudinary
 CLOUDINARY_URL="cloudinary://621213548914556:x5PEN95tppmVQVTwIKajrJKdxgc@drelbe6kp"
