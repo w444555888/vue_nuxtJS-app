@@ -3,17 +3,19 @@ import bcrypt from "bcryptjs";
 import prisma from "../prisma.js";
 import { generateAiText } from "./ai.js";
 import { mcpTools } from "./mcpTools.js";
-import { getTwStockQuote } from "./market/twStock.js";
+import { selectAndFetchAPIsForContext } from "./market/twStock.js";
  
 const BOT_EMAIL = process.env.STOCK_BOT_EMAIL || "stock-bot@chat.local";
 const BOT_USERNAME_BASE = process.env.STOCK_BOT_USERNAME || "StockBot";
 
 const STOCK_KEYWORD_REGEX =
-  /(股票|股價|台股|上市|上櫃|大盤|漲跌|收盤|開盤|成交|\bstock\b|\bquote\b|\bshares\b)/i;
+  /(股票|股價|台股|上市|上櫃|興櫃|大盤|指數|加權|櫃買|漲跌|收盤|開盤|成交|量價|k線|技術線圖|均線|籌碼|法人|主力|外資|投信|自營商|買賣超|三大法人|融資|融券|借券|券資比|資券|當沖|零股|除權息|配息|殖利率|股利|eps|本益比|股價淨值比|營收|財報|基本面|技術面|消息面|\bstock\b|\bquote\b|\bshares\b|\btaiex\b|\bpe\b|\bpb\b|\byield\b)/i;
 const QUOTE_INTENT_REGEX =
-  /(多少|幾塊|價格|報價|最新|目前|現價|漲|跌|收盤|開盤|走勢|狀態|\bprice\b|\bquote\b|\bup\b|\bdown\b)/i;
+  /(多少|幾塊|價格|報價|最新|目前|現價|昨收|今開|最高|最低|漲|跌|漲幅|跌幅|收盤|開盤|走勢|趨勢|狀態|行情|盤勢|量能|成交量|成交值|委買|委賣|內盤|外盤|\bprice\b|\bquote\b|\bup\b|\bdown\b|\btrend\b|\bvolume\b)/i;
 const STOCK_FOLLOWUP_REGEX =
-  /(目標價|合理價|買點|賣點|進場|出場|停利|停損|支撐|壓力|本益比|殖利率|風險|建議|分析|評估|可以買|要不要買)/i;
+  /(目標價|合理價|估值|高估|低估|買點|賣點|進場|出場|停利|停損|支撐|壓力|突破|回檔|區間|本益比|殖利率|股價淨值比|配息|股利|財報|營收|毛利率|營益率|淨利率|eps|法人買賣超|外資買賣超|投信買賣超|自營商買賣超|三大法人|籌碼|融資融券|風險|建議|分析|評估|可以買|要不要買|值不值得|可不可以進場)/i;
+const STOCK_FUZZY_CONTEXT_REGEX =
+  /(法人|三大法人|買超|賣超|外資|投信|自營商|主力|籌碼|融資|融券|借券|券資比|當沖|量縮|量增|爆量|套牢|解套|停利|停損|支撐|壓力|突破|回測|回檔|填息|除息|除權|配股|配息|股息|殖利率|本益比|股價淨值比|營收|財報|eps|taiex|加權指數|櫃買指數|盤勢|技術面|基本面|消息面)/i;
 const STOCK_SESSION_END_REGEX =
   /^(結束|結束對話|結束股票對話|停止|停止股票對話|先這樣|不用了|bye|end|stop|quit)$/i;
 const STOCK_SESSION_RESET_REGEX =
@@ -61,6 +63,41 @@ const isStockSessionResetMessage = (content) => {
   return STOCK_SESSION_RESET_REGEX.test(String(content || "").trim());
 };
 
+const containsFuzzyStockIntent = (text) => {
+  const normalized = String(text || "")
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .trim();
+
+  if (!normalized) {
+    return false;
+  }
+
+  if (
+    STOCK_KEYWORD_REGEX.test(normalized) ||
+    QUOTE_INTENT_REGEX.test(normalized) ||
+    STOCK_FOLLOWUP_REGEX.test(normalized) ||
+    STOCK_FUZZY_CONTEXT_REGEX.test(normalized)
+  ) {
+    return true;
+  }
+
+  const fuzzyPairs = [
+    ["法人", "買賣超"],
+    ["外資", "買超"],
+    ["投信", "買超"],
+    ["自營商", "買超"],
+    ["融資", "增加"],
+    ["融券", "增加"],
+    ["台股", "趨勢"],
+    ["股票", "分析"],
+  ];
+
+  return fuzzyPairs.some(
+    ([left, right]) => normalized.includes(left) && normalized.includes(right)
+  );
+};
+
 /**
  * 判斷是否應該觸發股票 AI 回覆
  * @param {*} content 使用者輸入的訊息內容
@@ -92,7 +129,7 @@ const shouldTriggerStockAi = (content, roomId) => {
     return true;
   }
 
-  if (STOCK_KEYWORD_REGEX.test(text) || QUOTE_INTENT_REGEX.test(text) || STOCK_FOLLOWUP_REGEX.test(text)) {
+  if (containsFuzzyStockIntent(text)) {
     return true;
   }
 
@@ -107,21 +144,30 @@ const extractSymbol = (content) => {
   return match?.[1] || null;
 };
 
-// 呼叫 MCP 工具取得股票報價
-const executeStockTool = async (symbol) => {
-  return mcpTools.execute("get_stock_quote", { symbol });
+// 呼叫智能 API 選擇器：根據用戶查詢內容動態決定要取得哪些資料
+const executeStockTool = async (symbol, userQuery) => {
+  try {
+    return await selectAndFetchAPIsForContext(symbol, userQuery);
+  } catch (error) {
+    console.error(`股票工具執行失敗 (${symbol}):`, error?.message);
+    return null;
+  }
 };
 
 // 建構給 AI 的提示語，包含使用者問題、工具回覆的股票資訊。
-const buildStockFollowupPrompt = (content, quote, trackedSymbol) => {
+const buildStockFollowupPrompt = (content, quoteData, trackedSymbol) => {
+  // 支援舊格式（單個quote）和新格式（多API結果）
+  const quote = quoteData?.base || quoteData;
+  
   return [
     "你已收到台股工具查詢結果，請用繁體中文回覆。",
     "回答規則：簡潔、不要杜撰數字、務必提到資料來源與資料時間。",
+    "若工具資料含有本益比、殖利率、股價淨值比、開高低收與成交資訊，請優先引用這些欄位再進行說明。",
     "若使用者問目標價、買賣點或投資建議，請明確說明無法保證預測，改提供風險觀點與可觀察指標。",
     "最後一行固定加上：以上資訊僅供參考，非投資建議。",
     `目前追蹤股票代號：${trackedSymbol || quote?.symbol || "未知"}`,
     `使用者問題：${String(content || "").trim()}`,
-    `工具資料：${JSON.stringify(quote)}`,
+    `工具資料：${JSON.stringify(quoteData)}`,
   ].join("\n");
 };
 
@@ -235,10 +281,28 @@ const buildFallbackQuoteText = (quote) => {
     : "N/A";
   const asOf = quote?.asOf || "N/A";
   const source = quote?.source || "TWSE/TPEx";
+  const peText = Number.isFinite(quote?.peRatio) ? quote.peRatio.toFixed(2) : "N/A";
+  const dividendYieldText = Number.isFinite(quote?.dividendYield)
+    ? `${quote.dividendYield.toFixed(2)}%`
+    : "N/A";
+  const pbText = Number.isFinite(quote?.pbRatio) ? quote.pbRatio.toFixed(2) : "N/A";
+  const dayOpenText = Number.isFinite(quote?.dayOpen) ? quote.dayOpen.toFixed(2) : "N/A";
+  const dayHighText = Number.isFinite(quote?.dayHigh) ? quote.dayHigh.toFixed(2) : "N/A";
+  const dayLowText = Number.isFinite(quote?.dayLow) ? quote.dayLow.toFixed(2) : "N/A";
+  const dayCloseText = Number.isFinite(quote?.dayClose) ? quote.dayClose.toFixed(2) : "N/A";
+  const tradeValueText = Number.isFinite(quote?.tradeValueDay)
+    ? Math.round(quote.tradeValueDay).toLocaleString("zh-TW")
+    : "N/A";
+  const transactionCountText = Number.isFinite(quote?.transactionCount)
+    ? Math.round(quote.transactionCount).toLocaleString("zh-TW")
+    : "N/A";
 
   return [
     `${quote?.name || quote?.symbol || "台股"} (${quote?.symbol || "N/A"}) 目前價格為 ${Number(quote?.price || 0).toFixed(2)}。`,
     `漲跌：${change} (${changePercent})。`,
+    `估值參考：本益比 ${peText}、殖利率 ${dividendYieldText}、股價淨值比 ${pbText}。`,
+    `日線摘要：開 ${dayOpenText} / 高 ${dayHighText} / 低 ${dayLowText} / 收 ${dayCloseText}。`,
+    `成交概況：成交金額 ${tradeValueText}、成交筆數 ${transactionCountText}。`,
     `資料來源：${source}，時間：${asOf}。`,
     "以上資訊僅供參考，非投資建議。",
   ].join("\n");
@@ -311,6 +375,7 @@ export const triggerGroupStockAiReply = async ({ roomId, content, io }) => {
     const botUser = await ensureBotUser();
     await ensureBotRoomMembership(botUser.id, roomId);
 
+    // 處理重置命令
     if (isStockSessionResetMessage(content)) {
       clearRoomStockSession(roomId);
       const resetMessage = await saveBotMessage(
@@ -322,6 +387,19 @@ export const triggerGroupStockAiReply = async ({ roomId, content, io }) => {
       return;
     }
 
+    // 處理結束命令 - 只在有活躍會話時觸發
+    if (isEndMessage && hasActiveSession) {
+      clearRoomStockSession(roomId);
+      const endMessage = await saveBotMessage(
+        botUser.id,
+        roomId,
+        `已結束 ${activeSession?.trackedSymbol || "股票"} 的查詢對話。若有其他查詢需求，請直接輸入股票代號。`
+      );
+      emitBotMessage(io, roomId, endMessage);
+      return;
+    }
+
+    // 如果沒有 symbol 也沒有活躍會話，提示輸入
     if (!symbol && !hasActiveSession && !isEndMessage) {
       const guidanceMessage = await saveBotMessage(
         botUser.id,
@@ -334,30 +412,30 @@ export const triggerGroupStockAiReply = async ({ roomId, content, io }) => {
 
     let aiText = "";
     let replyPath = "gemini";
+    let toolQuote = null;
+
     try {
-      const toolQuote = await executeStockTool(effectiveSymbol);
+      toolQuote = await executeStockTool(effectiveSymbol, content);
       aiText = await generateAiText(buildStockFollowupPrompt(content, toolQuote, effectiveSymbol));
       setRoomStockSession(roomId, effectiveSymbol);
     } catch (aiError) {
       console.error("群組股票 AI 回覆失敗，改用 fallback:", aiError?.message || aiError);
       replyPath = "fallback";
-      if (effectiveSymbol) {
-        const quote = await getTwStockQuote(effectiveSymbol);
-        aiText = buildFallbackFollowupText(content, quote);
+      if (toolQuote?.base) {
+        aiText = buildFallbackFollowupText(content, toolQuote.base);
         setRoomStockSession(roomId, effectiveSymbol);
       } else {
-        aiText = "目前無法取得即時股票回覆，請稍後重試，或直接再提供股票代號（例如 2330）。";
+        aiText = "目前無法取得即時股票行情，請稍後重試，或再次提供股票代號（例如 2330）。";
       }
     }
 
     if (!aiText) {
       replyPath = "fallback";
-      if (effectiveSymbol) {
-        const quote = await getTwStockQuote(effectiveSymbol);
-        aiText = buildFallbackFollowupText(content, quote);
+      if (toolQuote?.base) {
+        aiText = buildFallbackFollowupText(content, toolQuote.base);
         setRoomStockSession(roomId, effectiveSymbol);
       } else {
-        aiText = "目前無法取得即時股票回覆，請稍後重試，或直接再提供股票代號（例如 2330）。";
+        aiText = "目前無法取得即時股票行情，請稍後重試，或再次提供股票代號（例如 2330）。";
       }
     }
 
