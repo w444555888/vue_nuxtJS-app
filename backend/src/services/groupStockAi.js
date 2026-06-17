@@ -4,7 +4,7 @@ import prisma from "../prisma.js";
 import { generateAiText } from "./ai.js";
 import { mcpTools } from "./mcpTools.js";
 import { getTwStockQuote } from "./market/twStock.js";
-
+ 
 const BOT_EMAIL = process.env.STOCK_BOT_EMAIL || "stock-bot@chat.local";
 const BOT_USERNAME_BASE = process.env.STOCK_BOT_USERNAME || "StockBot";
 
@@ -18,13 +18,15 @@ const STOCK_SESSION_END_REGEX =
   /^(結束|結束對話|結束股票對話|停止|停止股票對話|先這樣|不用了|bye|end|stop|quit)$/i;
 const STOCK_SESSION_RESET_REGEX =
   /^(重置|重置對話|重置股票對話|清除股票對話|reset)$/i;
-const SYMBOL_REGEX = /(?:^|\D)(\d{4})(?:\D|$)/;
-const STOCK_SESSION_TTL_MS = 15 * 60 * 1000;
+
+const SYMBOL_REGEX = /(?:^|\D)(\d{4})(?:\D|$)/; // 提取 4 碼股票代號，確保前後不是數字，避免誤抓其他數字串。
+const STOCK_SESSION_TTL_MS = 15 * 60 * 1000; // 股票對話狀態的有效期限，15 分鐘內有互動則持續有效，超過則自動失效。
 
 const roomStockSessions = new Map(); // roomId -> { trackedSymbol, updatedAt }
 
 const getRoomSessionKey = (roomId) => String(roomId);
 
+// 取得房間的股票對話狀態，包含目前追蹤的股票代號與最後更新時間。若狀態不存在或已過期，則回傳 null。
 const getRoomStockSession = (roomId) => {
   const session = roomStockSessions.get(getRoomSessionKey(roomId)) || null;
   if (!session) {
@@ -59,6 +61,17 @@ const isStockSessionResetMessage = (content) => {
   return STOCK_SESSION_RESET_REGEX.test(String(content || "").trim());
 };
 
+/**
+ * 判斷是否應該觸發股票 AI 回覆
+ * @param {*} content 使用者輸入的訊息內容
+ * @param {*} roomId 房間 ID
+ * @returns {boolean} 是否應該觸發股票 AI 回覆
+ *  結束/重置命令：只在有活躍會話時觸發
+ *  包含 4 碼股票代號：直接觸發
+ *  股票相關關鍵字：觸發（股價、漲跌、買點等）
+ *  價格查詢意圖：觸發（多少、幾塊、現價等）
+ *  無相關內容時不觸發（避免干擾一般群聊）
+ */
 const shouldTriggerStockAi = (content, roomId) => {
   const text = String(content || "").trim();
   if (!text) {
@@ -87,16 +100,19 @@ const shouldTriggerStockAi = (content, roomId) => {
   return false;
 };
 
+// 從使用者訊息中提取 4 碼股票代號
 const extractSymbol = (content) => {
   const text = String(content || "");
   const match = text.match(SYMBOL_REGEX);
   return match?.[1] || null;
 };
 
+// 呼叫 MCP 工具取得股票報價
 const executeStockTool = async (symbol) => {
   return mcpTools.execute("get_stock_quote", { symbol });
 };
 
+// 建構給 AI 的提示語，包含使用者問題、工具回覆的股票資訊。
 const buildStockFollowupPrompt = (content, quote, trackedSymbol) => {
   return [
     "你已收到台股工具查詢結果，請用繁體中文回覆。",
@@ -109,6 +125,16 @@ const buildStockFollowupPrompt = (content, quote, trackedSymbol) => {
   ].join("\n");
 };
 
+/**
+ * 確保 AI Bot 的使用者帳號存在，若不存在則嘗試建立。
+ * 由於 Bot 帳號具有特殊性（固定 email、可能的 username 衝突），因此採取以下策略：
+ * 1. 嘗試以固定 email 查找使用者，若存在則直接回傳。
+ * 2. 若 email 不存在，嘗試建立新使用者，username 從固定基底開始，若有衝突則加數字後綴（例如 StockBot、StockBot1、StockBot2...），最多嘗試 5 次。
+ * 3. 若嘗試建立使用者時發生非唯一約束錯誤，則繼續嘗試下一個 username；若發生其他錯誤，則拋出。
+ * 4. 若所有嘗試都失敗，則拋出無法建立 AI Bot 帳號的錯誤。
+ * 這樣的策略可以確保在大多數情況下都能成功取得或建立 AI Bot 帳號，並且避免因為 username 衝突導致的問題。
+ * @returns {Promise<Object>} AI Bot 使用者資料
+ */
 const ensureBotUser = async () => {
   const existingByEmail = await prisma.user.findUnique({
     where: { email: BOT_EMAIL },
@@ -143,6 +169,7 @@ const ensureBotUser = async () => {
   throw new Error("無法建立 AI Bot 帳號");
 };
 
+// 確保 AI Bot 是房間成員，若不是則加入房間。這樣可以確保 Bot 有權限在房間內發送訊息。
 const ensureBotRoomMembership = async (botUserId, roomId) => {
   await prisma.chatRoomMember.upsert({
     where: {
@@ -159,6 +186,7 @@ const ensureBotRoomMembership = async (botUserId, roomId) => {
   });
 };
 
+// 儲存 Bot 的回覆訊息到資料庫，並包含使用者資料以便後續發送給前端。
 const saveBotMessage = async (botUserId, roomId, content) => {
   return prisma.message.create({
     data: {
@@ -175,6 +203,7 @@ const saveBotMessage = async (botUserId, roomId, content) => {
   });
 };
 
+// 將 Bot 的回覆訊息透過 Socket.IO 發送給房間內的使用者，包含訊息內容與使用者資料。
 const emitBotMessage = (io, roomId, botMessage) => {
   io.to(`room_${roomId}`).emit("receive_message", {
     id: botMessage.id,
@@ -190,6 +219,11 @@ const emitBotMessage = (io, roomId, botMessage) => {
   });
 };
 
+/**
+ * 當 AI 回覆無法取得或產生時，根據目前可用的股票資訊建構一個 fallback 的回覆內容。
+ * 這個回覆會包含股票的基本行情資訊（價格、漲跌、資料來源與時間），並且根據使用者的問題類型（例如目標價、買賣點）提供一些保守的參考框架或風險控管建議。
+ * 這樣可以確保即使 AI 分析服務暫時無法使用，使用者仍然能夠獲得一些有用的資訊，而不是完全沒有回覆。
+ */
 const buildFallbackQuoteText = (quote) => {
   const change = Number.isFinite(quote?.change)
     ? (quote.change > 0 ? `+${quote.change.toFixed(2)}` : quote.change.toFixed(2))
@@ -210,6 +244,7 @@ const buildFallbackQuoteText = (quote) => {
   ].join("\n");
 };
 
+// 根據目前價格計算一個參考的價格區間（以現價 ±8% 為例），並格式化為文字。若價格無效則回傳 "N/A"。
 const toPriceRangeText = (price) => {
   const numericPrice = Number(price || 0);
   if (!Number.isFinite(numericPrice) || numericPrice <= 0) {
@@ -221,6 +256,7 @@ const toPriceRangeText = (price) => {
   return `${lower} - ${upper}`;
 };
 
+// 呼叫 MCP 工具取得股票報價，並在失敗時回傳 null。這樣可以讓呼叫者根據是否有工具資料來決定後續的回覆內容。
 const buildFallbackFollowupText = (content, quote) => {
   const text = String(content || "").trim();
   const symbolText = `${quote?.name || quote?.symbol || "台股"} (${quote?.symbol || "N/A"})`;
