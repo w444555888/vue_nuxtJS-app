@@ -22,7 +22,8 @@ prisma.$connect()
     process.exit(1);
   });
 
-// 優雅關閉
+  
+// 優雅關閉(在程式結束前，把該清理的資源先清理完，再離開)
 process.on("SIGINT", async () => {
   await prisma.$disconnect();
   process.exit(0);
