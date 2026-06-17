@@ -6,46 +6,79 @@ const createError = (message, status = 400) => {
   return error;
 };
 
-const isGeminiPermissionDeniedError = (error) => {
+// 通用錯誤檢測函數
+const checkGeminiError = (error, statusCodes = [], keywords = []) => {
   const message = String(error?.message || "");
   const status = Number(error?.status || 0);
 
-  return (
-    status === 401 ||
-    status === 403 ||
-    message.includes("UNAUTHENTICATED") ||
-    message.includes("ACCESS_TOKEN_TYPE_UNSUPPORTED") ||
-    message.includes("PERMISSION_DENIED") ||
-    message.includes("API key was reported as leaked")
-  );
+  const statusMatch = statusCodes.includes(status);
+  const keywordMatch =
+    keywords.length === 0 || keywords.some((kw) => message.includes(kw));
+
+  return statusMatch || keywordMatch;
+};
+
+const isGeminiPermissionDeniedError = (error) => {
+  return checkGeminiError(error, [401, 403], [
+    "UNAUTHENTICATED",
+    "ACCESS_TOKEN_TYPE_UNSUPPORTED",
+    "PERMISSION_DENIED",
+    "API key was reported as leaked",
+  ]);
 };
 
 const isGeminiQuotaExceededError = (error) => {
-  const message = String(error?.message || "");
+  return checkGeminiError(error, [429], [
+    "RESOURCE_EXHAUSTED",
+    "Quota exceeded",
+    "rate-limits",
+  ]);
+};
+
+const isGeminiConfigurationError = (error) => {
   const status = Number(error?.status || 0);
+  if (status !== 400) return false;
 
-  return (
-    status === 429 ||
-    message.includes("RESOURCE_EXHAUSTED") ||
-    message.includes("Quota exceeded") ||
-    message.includes("rate-limits")
-  );
+  return checkGeminiError(error, [], [
+    "INVALID_ARGUMENT",
+    "FAILED_PRECONDITION",
+    "格式錯誤",
+    "國家/地區",
+  ]);
 };
 
-const buildGeneralFallbackReply = () => {
-  return [
-    "AI 客服目前暫時無法連線（模型金鑰需要更新），請稍後再試。",
-    "若問題緊急，建議先聯絡技術客服：w444555888w@gmail.com",
-  ].join("\n");
+const isGeminiServerError = (error) => {
+  const status = Number(error?.status || 0);
+  return [500, 503, 504].includes(status);
 };
 
-const buildGeneralQuotaFallbackReply = () => {
-  return [
-    "AI 客服目前請求量已達上限，暫時無法立即回覆。",
-    "請稍候約 1 分鐘後再試一次。",
-    "若問題緊急，建議先聯絡技術客服：w444555888w@gmail.com",
-  ].join("\n");
+const isGeminiTimeoutError = (error) => {
+  return checkGeminiError(error, [504], [
+    "DEADLINE_EXCEEDED",
+    "timeout",
+    "超時",
+  ]);
 };
+
+// 通用回覆構建函數
+const buildFallbackReply = (mainMessage, subMessage = "若問題緊急，建議先聯絡技術客服：w444555888w@gmail.com") => {
+  return [mainMessage, subMessage].join("\n");
+};
+
+const buildGeneralFallbackReply = () =>
+  buildFallbackReply("AI 客服目前暫時無法連線（模型金鑰需要更新），請稍後再試。");
+
+const buildGeneralQuotaFallbackReply = () =>
+  buildFallbackReply("AI 客服目前請求量已達上限，暫時無法立即回覆。", "請稍候約 1 分鐘後再試一次。\n若問題緊急，建議先聯絡技術客服：w444555888w@gmail.com");
+
+const buildServerErrorReply = () =>
+  buildFallbackReply("AI 客服服務目前維護中，暫時無法提供協助。", "請稍候片刻後再試一次。\n若問題緊急，建議先聯絡技術客服：w444555888w@gmail.com");
+
+const buildTimeoutErrorReply = () =>
+  buildFallbackReply("AI 客服處理您的問題花費時間過長，請稍後再試。", "建議嘗試以更簡潔的方式重新提問。\n若問題緊急，建議先聯絡技術客服：w444555888w@gmail.com");
+
+const buildConfigurationErrorReply = () =>
+  buildFallbackReply("AI 客服配置需要更新，服務暫時無法使用。", "請稍候，我們會盡快修復此問題。\n若問題緊急，建議先聯絡技術客服：w444555888w@gmail.com");
 
 const SYSTEM_PROMPT = `你是一個專業的聊天軟體（Chat App）客服助手。你的職責是幫助用戶解答關於應用程式使用、技術問題和帳號管理的問題。
 
@@ -138,6 +171,12 @@ const generateGeneralReply = async (ai, userMessage) => {
       latestToolData: null,
     };
   } catch (error) {
+    console.error("Gemini API 錯誤:", {
+      status: error?.status,
+      message: error?.message,
+      errorCode: error?.errorCode,
+    });
+
     if (isGeminiPermissionDeniedError(error)) {
       return {
         text: buildGeneralFallbackReply(),
@@ -148,6 +187,27 @@ const generateGeneralReply = async (ai, userMessage) => {
     if (isGeminiQuotaExceededError(error)) {
       return {
         text: buildGeneralQuotaFallbackReply(),
+        latestToolData: null,
+      };
+    }
+
+    if (isGeminiConfigurationError(error)) {
+      return {
+        text: buildConfigurationErrorReply(),
+        latestToolData: null,
+      };
+    }
+
+    if (isGeminiTimeoutError(error)) {
+      return {
+        text: buildTimeoutErrorReply(),
+        latestToolData: null,
+      };
+    }
+
+    if (isGeminiServerError(error)) {
+      return {
+        text: buildServerErrorReply(),
         latestToolData: null,
       };
     }
@@ -189,7 +249,3 @@ export const getAiChatResponse = async (message, _options = {}) => {
     timestamp: new Date(),
   };
 };
-
-export const getAiHealth = () => ({
-  status: "AI 客服服務正常",
-});

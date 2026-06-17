@@ -1,7 +1,7 @@
 import express from "express";
 import { verifyToken } from "../middleware/auth.js";
 import { successResponse, errorResponse } from "../utils/responseHandler.js";
-import { getAiChatResponse, getAiHealth } from "../services/ai.js";
+import { getAiChatResponse } from "../services/ai.js";
 
 const router = express.Router();
 
@@ -18,11 +18,6 @@ router.post("/chat", verifyToken, async (req, res) => {
     console.error("AI 客服錯誤:", error);
     return errorResponse(res, error, error.status || 500);
   }
-});
-
-// 健康檢查路由
-router.get("/health", (req, res) => {
-  return successResponse(res, getAiHealth());
 });
 
 export default router;
