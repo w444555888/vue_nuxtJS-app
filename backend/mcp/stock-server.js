@@ -3,7 +3,16 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { getTwStockQuote, selectAndFetchAPIsForContext } from "../src/services/market/twStock.js";
 
-// 定義工具列表
+/**
+ * 這個 MCP Server 主要負責處理台股相關的工具請求，目前定義了兩個工具：
+ * 1. get_stock_quote：取得指定台股代號的最新行情資料。
+ * 2. get_stock_context：根據使用者的問題，提供更完整的台股相關資訊，包括基礎行情和擴充資料。
+ *
+ * Server 使用標準輸入輸出（stdio）作為通訊方式，並且嚴格驗證工具名稱和參數，確保只處理預定義的工具請求。
+ * 工具的輸入參數也有明確的結構定義，缺少必要參數或提供不支援的工具名稱都會返回錯誤訊息。
+ * 查詢過程中如果發生任何錯誤，都會捕捉並返回適當的錯誤訊息給呼叫方。
+ * 這樣的設計確保了 MCP Server 的穩定性和安全性，同時也提供了清晰的接口供其他服務調用。
+ */
 const tools = [
   {
     name: "get_stock_quote",
