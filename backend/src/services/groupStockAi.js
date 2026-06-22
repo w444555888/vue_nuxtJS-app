@@ -3,7 +3,6 @@ import bcrypt from "bcryptjs";
 import prisma from "../prisma.js";
 import { generateAiText } from "./ai.js";
 import { mcpTools } from "./mcpTools.js";
-import { selectAndFetchAPIsForContext } from "./market/twStock.js";
  
 const BOT_EMAIL = process.env.STOCK_BOT_EMAIL || "stock-bot@chat.local";
 const BOT_USERNAME_BASE = process.env.STOCK_BOT_USERNAME || "StockBot";
@@ -147,7 +146,10 @@ const extractSymbol = (content) => {
 // 呼叫智能 API 選擇器：根據用戶查詢內容動態決定要取得哪些資料
 const executeStockTool = async (symbol, userQuery) => {
   try {
-    return await selectAndFetchAPIsForContext(symbol, userQuery);
+    return await mcpTools.execute("get_stock_context", {
+      symbol,
+      userQuery,
+    });
   } catch (error) {
     console.error(`股票工具執行失敗 (${symbol}):`, error?.message);
     return null;
