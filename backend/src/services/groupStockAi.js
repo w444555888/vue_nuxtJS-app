@@ -160,14 +160,35 @@ const executeStockTool = async (symbol, userQuery) => {
 const buildStockFollowupPrompt = (content, quoteData, trackedSymbol) => {
   // 支援舊格式（單個quote）和新格式（多API結果）
   const quote = quoteData?.base || quoteData;
+  const availableSections = [
+    "base",
+    "margin",
+    "borrowable",
+    "monthly",
+    "yearly",
+    "volatility",
+    "index",
+    "topVolume20",
+    "crossMarket",
+    "legalEntityTop",
+    "dividendInfo",
+  ].filter((key) => {
+    const value = quoteData?.[key];
+    if (Array.isArray(value)) {
+      return value.length > 0;
+    }
+    return Boolean(value);
+  });
   
   return [
     "你已收到台股工具查詢結果，請用繁體中文回覆。",
     "回答規則：簡潔、不要杜撰數字、務必提到資料來源與資料時間。",
     "若工具資料含有本益比、殖利率、股價淨值比、開高低收與成交資訊，請優先引用這些欄位再進行說明。",
+    "若有籌碼、波動、月/年區間或大盤欄位，請至少引用 1-2 個與問題最相關的數字。",
     "若使用者問目標價、買賣點或投資建議，請明確說明無法保證預測，改提供風險觀點與可觀察指標。",
     "最後一行固定加上：以上資訊僅供參考，非投資建議。",
     `目前追蹤股票代號：${trackedSymbol || quote?.symbol || "未知"}`,
+    `可用資料區塊：${availableSections.length ? availableSections.join(", ") : "base"}`,
     `使用者問題：${String(content || "").trim()}`,
     `工具資料：${JSON.stringify(quoteData)}`,
   ].join("\n");
@@ -273,6 +294,7 @@ const emitBotMessage = (io, roomId, botMessage) => {
  * 這樣可以確保即使 AI 分析服務暫時無法使用，使用者仍然能夠獲得一些有用的資訊，而不是完全沒有回覆。
  */
 const buildFallbackQuoteText = (quote) => {
+  const priceText = formatMaybeNumber(quote?.price);
   const change = Number.isFinite(quote?.change)
     ? (quote.change > 0 ? `+${quote.change.toFixed(2)}` : quote.change.toFixed(2))
     : "N/A";
@@ -300,7 +322,7 @@ const buildFallbackQuoteText = (quote) => {
     : "N/A";
 
   return [
-    `${quote?.name || quote?.symbol || "台股"} (${quote?.symbol || "N/A"}) 目前價格為 ${Number(quote?.price || 0).toFixed(2)}。`,
+    `${quote?.name || quote?.symbol || "台股"} (${quote?.symbol || "N/A"}) 目前價格為 ${priceText}。`,
     `漲跌：${change} (${changePercent})。`,
     `估值參考：本益比 ${peText}、殖利率 ${dividendYieldText}、股價淨值比 ${pbText}。`,
     `日線摘要：開 ${dayOpenText} / 高 ${dayHighText} / 低 ${dayLowText} / 收 ${dayCloseText}。`,
@@ -308,6 +330,62 @@ const buildFallbackQuoteText = (quote) => {
     `資料來源：${source}，時間：${asOf}。`,
     "以上資訊僅供參考，非投資建議。",
   ].join("\n");
+};
+
+const formatMaybeNumber = (value, digits = 2) => {
+  if (!Number.isFinite(value)) {
+    return "N/A";
+  }
+  return Number(value).toFixed(digits);
+};
+
+const formatMaybeInteger = (value) => {
+  if (!Number.isFinite(value)) {
+    return "N/A";
+  }
+  return Math.round(value).toLocaleString("zh-TW");
+};
+
+const buildExtendedContextLines = (quoteData) => {
+  const lines = [];
+
+  if (quoteData?.margin || quoteData?.borrowable) {
+    const marginBuy = formatMaybeInteger(quoteData?.margin?.marginBuyBalance);
+    const marginSell = formatMaybeInteger(quoteData?.margin?.marginSellBalance);
+    const shortSell = formatMaybeInteger(quoteData?.margin?.shortSellBalance);
+    const borrowedShares = formatMaybeInteger(quoteData?.borrowable?.borrowedShares);
+    lines.push(
+      `籌碼概況：融資餘額 ${marginBuy}、融券餘額 ${marginSell}、借券賣出 ${shortSell}、借券餘額 ${borrowedShares}。`
+    );
+  }
+
+  if (quoteData?.volatility) {
+    const volatilityChange = formatMaybeNumber(quoteData.volatility.priceChange);
+    const volatilityPct = Number.isFinite(quoteData?.volatility?.priceChangePercent)
+      ? `${Number(quoteData.volatility.priceChangePercent).toFixed(2)}%`
+      : "N/A";
+    lines.push(`波動參考：波動值 ${volatilityChange}、波動率 ${volatilityPct}。`);
+  }
+
+  if (quoteData?.monthly || quoteData?.yearly) {
+    const monthlyHigh = formatMaybeNumber(quoteData?.monthly?.monthlyHigh);
+    const monthlyLow = formatMaybeNumber(quoteData?.monthly?.monthlyLow);
+    const yearlyHigh = formatMaybeNumber(quoteData?.yearly?.yearlyHigh);
+    const yearlyLow = formatMaybeNumber(quoteData?.yearly?.yearlyLow);
+    lines.push(`區間參考：月高低 ${monthlyHigh}/${monthlyLow}，年高低 ${yearlyHigh}/${yearlyLow}。`);
+  }
+
+  if (quoteData?.index || quoteData?.crossMarket) {
+    const indexName = quoteData?.index?.IndexName || quoteData?.index?.指數名稱 || "加權指數";
+    const indexClose =
+      quoteData?.index?.ClosingIndex || quoteData?.index?.收盤指數 || quoteData?.index?.IndexValue;
+    const tpexClose = quoteData?.crossMarket?.OTCIndex || quoteData?.crossMarket?.櫃買指數;
+    lines.push(
+      `大盤概況：${indexName} ${formatMaybeNumber(Number(indexClose))}，櫃買指數 ${formatMaybeNumber(Number(tpexClose))}。`
+    );
+  }
+
+  return lines;
 };
 
 // 根據目前價格計算一個參考的價格區間（以現價 ±8% 為例），並格式化為文字。若價格無效則回傳 "N/A"。
@@ -323,22 +401,27 @@ const toPriceRangeText = (price) => {
 };
 
 // 呼叫 MCP 工具取得股票報價，並在失敗時回傳 null。這樣可以讓呼叫者根據是否有工具資料來決定後續的回覆內容。
-const buildFallbackFollowupText = (content, quote) => {
+const buildFallbackFollowupText = (content, quoteData) => {
+  const quote = quoteData?.base || quoteData;
   const text = String(content || "").trim();
   const symbolText = `${quote?.name || quote?.symbol || "台股"} (${quote?.symbol || "N/A"})`;
-  const priceText = Number(quote?.price || 0).toFixed(2);
+  const priceText = formatMaybeNumber(quote?.price);
   const source = quote?.source || "TWSE MIS";
   const asOf = quote?.asOf || "N/A";
+  const extendedContextLines = buildExtendedContextLines(quoteData);
 
   if (/目標價|合理價/.test(text)) {
-    return [
+    const lines = [
       `${symbolText} 現價約 ${priceText}。`,
       "目前 LLM 分析服務忙碌中，先提供保守參考框架：",
       `參考區間（以現價 ±8%）：${toPriceRangeText(quote?.price)}。`,
       "你可搭配近 4 季營收成長、毛利率與本益比區間再調整目標價。",
-      `資料來源：${source}，時間：${asOf}。`,
-      "以上資訊僅供參考，非投資建議。",
-    ].join("\n");
+    ];
+
+    lines.push(...extendedContextLines);
+    lines.push(`資料來源：${source}，時間：${asOf}。`);
+    lines.push("以上資訊僅供參考，非投資建議。");
+    return lines.join("\n");
   }
 
   if (/買點|賣點|進場|出場|停利|停損/.test(text)) {
@@ -349,17 +432,24 @@ const buildFallbackFollowupText = (content, quote) => {
       ? (Number(quote.price) * 1.1).toFixed(2)
       : "N/A";
 
-    return [
+    const lines = [
       `${symbolText} 現價約 ${priceText}。`,
       "目前 LLM 分析服務忙碌中，先提供風險控管模板：",
       `可觀察停損參考：${stopLoss}，停利參考：${takeProfit}。`,
       "請搭配你的持有週期與可承受回撤調整，不建議單一點位重押。",
-      `資料來源：${source}，時間：${asOf}。`,
-      "以上資訊僅供參考，非投資建議。",
-    ].join("\n");
+    ];
+
+    lines.push(...extendedContextLines);
+    lines.push(`資料來源：${source}，時間：${asOf}。`);
+    lines.push("以上資訊僅供參考，非投資建議。");
+    return lines.join("\n");
   }
 
-  return buildFallbackQuoteText(quote);
+  const baseLines = buildFallbackQuoteText(quote).split("\n");
+  if (extendedContextLines.length > 0) {
+    baseLines.splice(baseLines.length - 2, 0, ...extendedContextLines);
+  }
+  return baseLines.join("\n");
 };
 
 export const triggerGroupStockAiReply = async ({ roomId, content, io }) => {
@@ -424,7 +514,7 @@ export const triggerGroupStockAiReply = async ({ roomId, content, io }) => {
       console.error("群組股票 AI 回覆失敗，改用 fallback:", aiError?.message || aiError);
       replyPath = "fallback";
       if (toolQuote?.base) {
-        aiText = buildFallbackFollowupText(content, toolQuote.base);
+        aiText = buildFallbackFollowupText(content, toolQuote);
         setRoomStockSession(roomId, effectiveSymbol);
       } else {
         aiText = "目前無法取得即時股票行情，請稍後重試，或再次提供股票代號（例如 2330）。";
@@ -434,7 +524,7 @@ export const triggerGroupStockAiReply = async ({ roomId, content, io }) => {
     if (!aiText) {
       replyPath = "fallback";
       if (toolQuote?.base) {
-        aiText = buildFallbackFollowupText(content, toolQuote.base);
+        aiText = buildFallbackFollowupText(content, toolQuote);
         setRoomStockSession(roomId, effectiveSymbol);
       } else {
         aiText = "目前無法取得即時股票行情，請稍後重試，或再次提供股票代號（例如 2330）。";
