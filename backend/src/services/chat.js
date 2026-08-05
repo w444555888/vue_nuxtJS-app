@@ -594,6 +594,14 @@ export const handleMediaUpload = async (
     } catch (cleanupError) {
       console.error("清理分片失敗:", cleanupError);
     }
+
+    if (error?.code === "SELF_SIGNED_CERT_IN_CHAIN") {
+      throw createError(
+        "媒體上傳 TLS 驗證失敗（SELF_SIGNED_CERT_IN_CHAIN）。若處於公司網路/代理環境，請設置 CLOUDINARY_CA_CERT_PATH 指向代理 CA 憑證；僅開發環境可暫用 CLOUDINARY_ALLOW_SELF_SIGNED=true。",
+        502
+      );
+    }
+
     throw error;
   }
 };

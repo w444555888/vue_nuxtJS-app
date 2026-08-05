@@ -1,5 +1,10 @@
 import { v2 as cloudinary } from "cloudinary";
 
+if (process.env.CLOUDINARY_ALLOW_SELF_SIGNED === "true") {
+  // 僅供本機短期除錯使用，勿在正式環境啟用
+  process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0";
+}
+
 const cloudName = process.env.CLOUDINARY_CLOUD_NAME;
 const apiKey = process.env.CLOUDINARY_API_KEY;
 const apiSecret = process.env.CLOUDINARY_API_SECRET;
