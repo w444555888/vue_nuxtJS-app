@@ -1,3 +1,5 @@
+import dayjs from "dayjs";
+
 const REQUEST_TIMEOUT_MS = 5000;
 const FINMIND_REQUEST_TIMEOUT_MS = 10000;
 const FINMIND_CACHE_TTL_MS = 10 * 60 * 1000;
@@ -66,14 +68,60 @@ const pickFirstValue = (record, keys) => {
 const getRecordSymbol = (record) => {
   const raw = pickFirstValue(record, [
     "stock_id",
+    "stockId",
     "StockId",
+    "股票代號",
+    "公司代號",
+    "公司代碼",
+    "symbol",
+    "Symbol",
     "data_id",
     "DataId",
     "Code",
-    "symbol",
-    "Symbol",
+    "security_id",
+    "SecurityId",
   ]);
   return raw ? String(raw).trim() : null;
+};
+
+const trimRecentRows = (list, limit = 10) => {
+  if (!Array.isArray(list) || list.length === 0) {
+    return [];
+  }
+  return list.slice(0, limit);
+};
+
+const normalizeHttpUrl = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) {
+    return null;
+  }
+
+  if (/^https?:\/\//i.test(raw)) {
+    return raw;
+  }
+
+  if (raw.startsWith("//")) {
+    return `https:${raw}`;
+  }
+
+  return null;
+};
+
+const filterRowsBySymbol = (list, symbol) => {
+  if (!Array.isArray(list) || list.length === 0) {
+    return [];
+  }
+
+  const target = String(symbol || "").trim();
+  if (!target) {
+    return list;
+  }
+
+  const scoped = list.filter(
+    (item) => String(getRecordSymbol(item) || "").trim() === target
+  );
+  return scoped.length > 0 ? scoped : list;
 };
 
 const getRecordDate = (record) => {
@@ -105,9 +153,7 @@ const getLatestRecord = (list, symbol = null) => {
 };
 
 const getDateNDaysAgo = (days) => {
-  const date = new Date();
-  date.setDate(date.getDate() - days);
-  return date.toISOString().slice(0, 10);
+  return dayjs().subtract(days, 'day').format('YYYY-MM-DD');
 };
 
 const buildQueryString = (params = {}) => {
@@ -211,8 +257,17 @@ const fetchFinMindData = async (dataset, params = {}) => {
   });
 
   if (data?.status && Number(data.status) !== 200) {
+    const status = Number(data.status);
+    
+    if (status === 402) {
+      throw createError(
+        "API 用量已超出限額，請升級訂閱或稍後再試。詳情請訪：https://finmindtrade.com/",
+        429
+      );
+    }
+    
     throw createError(
-      data?.msg || `FinMind 資料查詢失敗（status=${data.status}）`,
+      data?.msg || `FinMind 資料查詢失敗（status=${status}）`,
       502
     );
   }
@@ -704,6 +759,246 @@ export const getDividendAnnouncements = async () => {
   }
 };
 
+export const getStockNews = async (symbol) => {
+  try {
+    const list = await fetchFinMindData("TaiwanStockNews", {
+      data_id: symbol,
+      start_date: getDateNDaysAgo(45),
+    });
+
+    const scoped = filterRowsBySymbol(list, symbol);
+    const sorted = scoped
+      .slice()
+      .sort(
+        (a, b) => Date.parse(String(getRecordDate(b) || "")) - Date.parse(String(getRecordDate(a) || ""))
+      );
+
+    const normalized = trimRecentRows(sorted, 8)
+      .map((item) => {
+        const title = pickFirstValue(item, ["title", "Title", "headline", "新聞標題"]);
+        const link = normalizeHttpUrl(
+          pickFirstValue(item, ["link", "Link", "url", "URL", "新聞連結"])
+        );
+        const source = pickFirstValue(item, ["source", "Source", "來源", "publisher"]);
+        const description = pickFirstValue(item, ["description", "Description", "summary", "內容"]);
+        const date = getRecordDate(item);
+
+        return {
+          date: date || null,
+          stock_id: getRecordSymbol(item) || symbol,
+          title: title ? String(title).trim() : null,
+          description: description ? String(description).trim() : null,
+          source: source ? String(source).trim() : null,
+          link,
+        };
+      })
+      .filter((item) => item.title || item.link || item.description);
+
+    return normalized;
+  } catch (error) {
+    return [];
+  }
+};
+
+export const getStockIndustryChain = async (symbol) => {
+  try {
+    const list = await fetchFinMindData("TaiwanStockIndustryChain", {
+      data_id: symbol,
+    });
+
+    const scoped = filterRowsBySymbol(list, symbol);
+    return trimRecentRows(scoped, 20);
+  } catch (error) {
+    return [];
+  }
+};
+
+export const getCashFlowStatement = async (symbol) => {
+  try {
+    const list = await fetchFinMindData("TaiwanStockCashFlowsStatement", {
+      data_id: symbol,
+      start_date: getDateNDaysAgo(365 * 5),
+    });
+
+    const scoped = filterRowsBySymbol(list, symbol);
+    const latest = getLatestRecord(scoped, symbol);
+    if (!latest) {
+      return null;
+    }
+
+    return {
+      symbol,
+      date: getRecordDate(latest) || null,
+      operatingCashFlow: toNumber(
+        pickFirstValue(latest, [
+          "CashFlowsFromOperatingActivities",
+          "cash_flows_from_operating_activities",
+          "operating_cash_flow",
+          "營業活動之淨現金流入（流出）",
+        ])
+      ),
+      investingCashFlow: toNumber(
+        pickFirstValue(latest, [
+          "CashFlowsFromInvestingActivities",
+          "cash_flows_from_investing_activities",
+          "investing_cash_flow",
+          "投資活動之淨現金流入（流出）",
+        ])
+      ),
+      financingCashFlow: toNumber(
+        pickFirstValue(latest, [
+          "CashFlowsFromFinancingActivities",
+          "cash_flows_from_financing_activities",
+          "financing_cash_flow",
+          "籌資活動之淨現金流入（流出）",
+        ])
+      ),
+      freeCashFlow: toNumber(
+        pickFirstValue(latest, [
+          "FreeCashFlow",
+          "free_cash_flow",
+          "自由現金流量",
+        ])
+      ),
+      raw: latest,
+    };
+  } catch (error) {
+    return null;
+  }
+};
+
+export const getDividendPolicy = async (symbol) => {
+  try {
+    const list = await fetchFinMindData("TaiwanStockDividend", {
+      data_id: symbol,
+      start_date: getDateNDaysAgo(365 * 6),
+    });
+
+    const scoped = filterRowsBySymbol(list, symbol);
+    if (!Array.isArray(scoped) || scoped.length === 0) {
+      return [];
+    }
+
+    const sorted = scoped
+      .slice()
+      .sort(
+        (a, b) => Date.parse(String(getRecordDate(b) || "")) - Date.parse(String(getRecordDate(a) || ""))
+      );
+
+    return trimRecentRows(sorted, 8);
+  } catch (error) {
+    return [];
+  }
+};
+
+export const getGovernmentBankBuySell = async (symbol) => {
+  try {
+    const list = await fetchFinMindData("TaiwanstockGovernmentBankBuySell", {
+      data_id: symbol,
+      start_date: getDateNDaysAgo(90),
+    });
+
+    const scoped = filterRowsBySymbol(list, symbol);
+    const latest = getLatestRecord(scoped, symbol);
+    if (!latest) {
+      return null;
+    }
+
+    return {
+      symbol,
+      date: getRecordDate(latest) || null,
+      buy: toNumber(pickFirstValue(latest, ["buy", "Buy", "買進股數", "買進金額"])),
+      sell: toNumber(pickFirstValue(latest, ["sell", "Sell", "賣出股數", "賣出金額"])),
+      net: toNumber(pickFirstValue(latest, ["net", "Net", "買賣超", "淨買賣"])),
+      raw: latest,
+    };
+  } catch (error) {
+    return null;
+  }
+};
+
+export const getMonthRevenue = async (symbol) => {
+  try {
+    const list = await fetchFinMindData("TaiwanStockMonthRevenue", {
+      data_id: symbol,
+      start_date: getDateNDaysAgo(365 * 3),
+    });
+
+    const scoped = filterRowsBySymbol(list, symbol);
+    const latest = getLatestRecord(scoped, symbol);
+    if (!latest) {
+      return null;
+    }
+
+    return {
+      symbol,
+      date: getRecordDate(latest) || null,
+      revenue: toNumber(
+        pickFirstValue(latest, ["revenue", "Revenue", "month_revenue", "當月營收"])
+      ),
+      revenueMoM: toNumber(
+        pickFirstValue(latest, ["revenue_month", "revenue_mom", "營收月增率", "MoM"])
+      ),
+      revenueYoY: toNumber(
+        pickFirstValue(latest, ["revenue_year", "revenue_yoy", "營收年增率", "YoY"])
+      ),
+      raw: latest,
+    };
+  } catch (error) {
+    return null;
+  }
+};
+
+export const getFinancialStatements = async (symbol) => {
+  try {
+    const [incomeList, balanceList] = await Promise.all([
+      fetchFinMindData("TaiwanStockFinancialStatements", {
+        data_id: symbol,
+        start_date: getDateNDaysAgo(365 * 4),
+      }),
+      fetchFinMindData("TaiwanStockBalanceSheet", {
+        data_id: symbol,
+        start_date: getDateNDaysAgo(365 * 4),
+      }),
+    ]);
+
+    const incomeScoped = filterRowsBySymbol(incomeList, symbol);
+    const balanceScoped = filterRowsBySymbol(balanceList, symbol);
+    const latestIncome = getLatestRecord(incomeScoped, symbol);
+    const latestBalance = getLatestRecord(balanceScoped, symbol);
+
+    if (!latestIncome && !latestBalance) {
+      return null;
+    }
+
+    return {
+      symbol,
+      incomeDate: getRecordDate(latestIncome) || null,
+      balanceDate: getRecordDate(latestBalance) || null,
+      eps: toNumber(pickFirstValue(latestIncome, ["EPS", "eps", "每股盈餘"])),
+      grossProfit: toNumber(
+        pickFirstValue(latestIncome, ["GrossProfit", "gross_profit", "營業毛利（毛損）"])
+      ),
+      operatingIncome: toNumber(
+        pickFirstValue(latestIncome, ["OperatingIncome", "operating_income", "營業利益（損失）"])
+      ),
+      netIncome: toNumber(
+        pickFirstValue(latestIncome, ["NetIncome", "net_income", "本期淨利（淨損）"])
+      ),
+      totalAssets: toNumber(
+        pickFirstValue(latestBalance, ["TotalAssets", "total_assets", "資產總計"])
+      ),
+      totalLiabilities: toNumber(
+        pickFirstValue(latestBalance, ["TotalLiabilities", "total_liabilities", "負債總計"])
+      ),
+      rawIncome: latestIncome || null,
+      rawBalance: latestBalance || null,
+    };
+  } catch (error) {
+    return null;
+  }
+};
+
 // ===== API 選擇器：根據用戶查詢關鍵字決定要呼叫哪些 API =====
 export const selectAndFetchAPIsForContext = async (symbol, userQuery) => {
   const queryLower = String(userQuery || "").toLowerCase();
@@ -719,6 +1014,13 @@ export const selectAndFetchAPIsForContext = async (symbol, userQuery) => {
     crossMarket: null,
     legalEntityTop: null,
     dividendInfo: null,
+    news: null,
+    industryChain: null,
+    cashFlow: null,
+    dividendPolicy: null,
+    governmentBankBuySell: null,
+    monthRevenue: null,
+    financialStatements: null,
   };
 
   try {
@@ -789,8 +1091,100 @@ export const selectAndFetchAPIsForContext = async (symbol, userQuery) => {
   if (/除息|除權|配息|股利|殖利率|填息/.test(queryLower)) {
     try {
       result.dividendInfo = await getDividendAnnouncements();
+      result.dividendPolicy = await getDividendPolicy(symbol);
     } catch (error) {
       console.error(`除權息查詢失敗:`, error?.message);
+    }
+  }
+
+  // 新聞事件 - 關鍵字：新聞、消息、公告、題材、利多、利空
+  if (/新聞|消息|公告|題材|利多|利空|why|原因|為什麼/.test(queryLower)) {
+    try {
+      result.news = await getStockNews(symbol);
+    } catch (error) {
+      console.error(`新聞查詢失敗 (${symbol}):`, error?.message);
+    }
+  }
+
+  // 產業鏈 - 關鍵字：產業、供應鏈、族群、上游、下游、同業
+  if (/產業|供應鏈|族群|上游|下游|同業|競爭/.test(queryLower)) {
+    try {
+      result.industryChain = await getStockIndustryChain(symbol);
+    } catch (error) {
+      console.error(`產業鏈查詢失敗 (${symbol}):`, error?.message);
+    }
+  }
+
+  // 現金流 - 關鍵字：現金流、自由現金流、營業現金流
+  if (/現金流|自由現金流|營業現金流|投資現金流|籌資現金流/.test(queryLower)) {
+    try {
+      result.cashFlow = await getCashFlowStatement(symbol);
+    } catch (error) {
+      console.error(`現金流查詢失敗 (${symbol}):`, error?.message);
+    }
+  }
+
+  // 八大行庫 - 關鍵字：八大行庫、官股、行庫
+  if (/八大行庫|官股|行庫/.test(queryLower)) {
+    try {
+      result.governmentBankBuySell = await getGovernmentBankBuySell(symbol);
+    } catch (error) {
+      console.error(`八大行庫查詢失敗 (${symbol}):`, error?.message);
+    }
+  }
+
+  // 月營收 - 關鍵字：營收、月營收、MoM、YoY
+  if (/營收|月營收|mom|yoy|年增|月增/.test(queryLower)) {
+    try {
+      result.monthRevenue = await getMonthRevenue(symbol);
+    } catch (error) {
+      console.error(`月營收查詢失敗 (${symbol}):`, error?.message);
+    }
+  }
+
+  // 財報 - 關鍵字：財報、eps、獲利、毛利、淨利、資產、負債
+  if (/財報|eps|獲利|毛利|淨利|資產|負債|損益|基本面/.test(queryLower)) {
+    try {
+      result.financialStatements = await getFinancialStatements(symbol);
+    } catch (error) {
+      console.error(`財報查詢失敗 (${symbol}):`, error?.message);
+    }
+  }
+
+  // 詳細分析請求：補充完整資料（避免只回基本行情）
+  if (/詳細|詳情|完整|全方位|深度|進一步|分析/.test(queryLower)) {
+    const detailTasks = [
+      result.news ? Promise.resolve(result.news) : getStockNews(symbol),
+      result.industryChain
+        ? Promise.resolve(result.industryChain)
+        : getStockIndustryChain(symbol),
+      result.cashFlow ? Promise.resolve(result.cashFlow) : getCashFlowStatement(symbol),
+      result.dividendPolicy
+        ? Promise.resolve(result.dividendPolicy)
+        : getDividendPolicy(symbol),
+      result.governmentBankBuySell
+        ? Promise.resolve(result.governmentBankBuySell)
+        : getGovernmentBankBuySell(symbol),
+      result.monthRevenue ? Promise.resolve(result.monthRevenue) : getMonthRevenue(symbol),
+      result.financialStatements
+        ? Promise.resolve(result.financialStatements)
+        : getFinancialStatements(symbol),
+    ];
+
+    try {
+      const [news, industryChain, cashFlow, dividendPolicy, governmentBankBuySell, monthRevenue, financialStatements] =
+        await Promise.all(detailTasks);
+      result.news = result.news || news;
+      result.industryChain = result.industryChain || industryChain;
+      result.cashFlow = result.cashFlow || cashFlow;
+      result.dividendPolicy = result.dividendPolicy || dividendPolicy;
+      result.governmentBankBuySell =
+        result.governmentBankBuySell || governmentBankBuySell;
+      result.monthRevenue = result.monthRevenue || monthRevenue;
+      result.financialStatements =
+        result.financialStatements || financialStatements;
+    } catch (error) {
+      console.error(`詳細資料補充失敗 (${symbol}):`, error?.message);
     }
   }
 

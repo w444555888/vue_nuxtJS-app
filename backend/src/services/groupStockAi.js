@@ -8,13 +8,13 @@ const BOT_EMAIL = process.env.STOCK_BOT_EMAIL || "stock-bot@chat.local";
 const BOT_USERNAME_BASE = process.env.STOCK_BOT_USERNAME || "StockBot";
 
 const STOCK_KEYWORD_REGEX =
-  /(股票|股價|台股|上市|上櫃|興櫃|大盤|指數|加權|櫃買|漲跌|收盤|開盤|成交|量價|k線|技術線圖|均線|籌碼|法人|主力|外資|投信|自營商|買賣超|三大法人|融資|融券|借券|券資比|資券|當沖|零股|除權息|配息|殖利率|股利|eps|本益比|股價淨值比|營收|財報|基本面|技術面|消息面|\bstock\b|\bquote\b|\bshares\b|\btaiex\b|\bpe\b|\bpb\b|\byield\b)/i;
+  /(股票|股價|台股|上市|上櫃|興櫃|大盤|指數|加權|櫃買|漲跌|收盤|開盤|成交|量價|k線|技術線圖|均線|籌碼|法人|主力|外資|投信|自營商|買賣超|三大法人|融資|融券|借券|券資比|資券|當沖|零股|除權息|配息|殖利率|股利|eps|本益比|股價淨值比|營收|月增|年增|mom|yoy|財報|現金流|自由現金流|產業鏈|供應鏈|八大行庫|官股|新聞|公告|消息面|\bstock\b|\bquote\b|\bshares\b|\btaiex\b|\bpe\b|\bpb\b|\byield\b)/i;
 const QUOTE_INTENT_REGEX =
   /(多少|幾塊|價格|報價|最新|目前|現價|昨收|今開|最高|最低|漲|跌|漲幅|跌幅|收盤|開盤|走勢|趨勢|狀態|行情|盤勢|量能|成交量|成交值|委買|委賣|內盤|外盤|\bprice\b|\bquote\b|\bup\b|\bdown\b|\btrend\b|\bvolume\b)/i;
 const STOCK_FOLLOWUP_REGEX =
-  /(目標價|合理價|估值|高估|低估|買點|賣點|進場|出場|停利|停損|支撐|壓力|突破|回檔|區間|本益比|殖利率|股價淨值比|配息|股利|財報|營收|毛利率|營益率|淨利率|eps|法人買賣超|外資買賣超|投信買賣超|自營商買賣超|三大法人|籌碼|融資融券|風險|建議|分析|評估|可以買|要不要買|值不值得|可不可以進場)/i;
+  /(目標價|合理價|估值|高估|低估|買點|賣點|進場|出場|停利|停損|支撐|壓力|突破|回檔|區間|本益比|殖利率|股價淨值比|配息|股利|財報|營收|毛利率|營益率|淨利率|eps|現金流|自由現金流|月增|年增|mom|yoy|新聞|公告|題材|產業鏈|供應鏈|八大行庫|官股|法人買賣超|外資買賣超|投信買賣超|自營商買賣超|三大法人|籌碼|融資融券|風險|建議|分析|評估|可以買|要不要買|值不值得|可不可以進場)/i;
 const STOCK_FUZZY_CONTEXT_REGEX =
-  /(法人|三大法人|買超|賣超|外資|投信|自營商|主力|籌碼|融資|融券|借券|券資比|當沖|量縮|量增|爆量|套牢|解套|停利|停損|支撐|壓力|突破|回測|回檔|填息|除息|除權|配股|配息|股息|殖利率|本益比|股價淨值比|營收|財報|eps|taiex|加權指數|櫃買指數|盤勢|技術面|基本面|消息面)/i;
+  /(法人|三大法人|買超|賣超|外資|投信|自營商|主力|籌碼|融資|融券|借券|券資比|當沖|量縮|量增|爆量|套牢|解套|停利|停損|支撐|壓力|突破|回測|回檔|填息|除息|除權|配股|配息|股息|殖利率|本益比|股價淨值比|營收|月增|年增|mom|yoy|財報|eps|現金流|自由現金流|新聞|公告|產業鏈|供應鏈|八大行庫|官股|taiex|加權指數|櫃買指數|盤勢|技術面|基本面|消息面)/i;
 const STOCK_SESSION_END_REGEX =
   /^(結束|結束對話|結束股票對話|停止|停止股票對話|先這樣|不用了|bye|end|stop|quit)$/i;
 const STOCK_SESSION_RESET_REGEX =
@@ -172,6 +172,13 @@ const buildStockFollowupPrompt = (content, quoteData, trackedSymbol) => {
     "crossMarket",
     "legalEntityTop",
     "dividendInfo",
+    "news",
+    "industryChain",
+    "cashFlow",
+    "dividendPolicy",
+    "governmentBankBuySell",
+    "monthRevenue",
+    "financialStatements",
   ].filter((key) => {
     const value = quoteData?.[key];
     if (Array.isArray(value)) {
@@ -184,8 +191,12 @@ const buildStockFollowupPrompt = (content, quoteData, trackedSymbol) => {
     "你已收到台股工具查詢結果，請用繁體中文回覆。",
     "回答規則：簡潔、不要杜撰數字、務必提到資料來源與資料時間。",
     "若工具資料含有本益比、殖利率、股價淨值比、開高低收與成交資訊，請優先引用這些欄位再進行說明。",
-    "若有籌碼、波動、月/年區間或大盤欄位，請至少引用 1-2 個與問題最相關的數字。",
-    "若使用者問目標價、買賣點或投資建議，請明確說明無法保證預測，改提供風險觀點與可觀察指標。",
+    "若問題涉及三大法人/籌碼，優先引用 legalEntityTop、margin、borrowable、governmentBankBuySell。",
+    "若問題涉及新聞/題材，優先引用 news；若涉及產業或供應鏈，優先引用 industryChain。",
+    "若 news 區塊有資料，請在回覆中至少提供 1-3 則新聞標題與對應連結。",
+    "若問題涉及財報或基本面，優先引用 financialStatements、cashFlow、monthRevenue、dividendPolicy。",
+    "若有波動、月/年區間或大盤欄位，請至少引用 1-2 個最相關數字。",
+    "若某區塊沒有資料，請明確說明「目前該區塊無最新資料」，不要猜測。",
     "最後一行固定加上：以上資訊僅供參考，非投資建議。",
     `目前追蹤股票代號：${trackedSymbol || quote?.symbol || "未知"}`,
     `可用資料區塊：${availableSections.length ? availableSections.join(", ") : "base"}`,
@@ -346,6 +357,20 @@ const formatMaybeInteger = (value) => {
   return Math.round(value).toLocaleString("zh-TW");
 };
 
+const buildNewsLinkLines = (newsList, limit = 3) => {
+  if (!Array.isArray(newsList) || newsList.length === 0) {
+    return [];
+  }
+
+  return newsList
+    .filter((item) => item?.link && item?.title)
+    .slice(0, limit)
+    .map((item, index) => {
+      const source = item?.source ? ` (${item.source})` : "";
+      return `新聞連結 ${index + 1}：${item.title}${source} - ${item.link}`;
+    });
+};
+
 const buildExtendedContextLines = (quoteData) => {
   const lines = [];
 
@@ -385,6 +410,52 @@ const buildExtendedContextLines = (quoteData) => {
     );
   }
 
+  if (Array.isArray(quoteData?.legalEntityTop) && quoteData.legalEntityTop.length > 0) {
+    lines.push(`法人概況：已取得三大法人相關資料 ${quoteData.legalEntityTop.length} 筆。`);
+  }
+
+  if (quoteData?.monthRevenue) {
+    const revenue = formatMaybeInteger(quoteData?.monthRevenue?.revenue);
+    const mom = formatMaybeNumber(quoteData?.monthRevenue?.revenueMoM);
+    const yoy = formatMaybeNumber(quoteData?.monthRevenue?.revenueYoY);
+    lines.push(`營收概況：最新月營收 ${revenue}，月增率 ${mom}%、年增率 ${yoy}%。`);
+  }
+
+  if (quoteData?.financialStatements) {
+    const eps = formatMaybeNumber(quoteData?.financialStatements?.eps);
+    const netIncome = formatMaybeInteger(quoteData?.financialStatements?.netIncome);
+    lines.push(`財報概況：EPS ${eps}、淨利 ${netIncome}。`);
+  }
+
+  if (quoteData?.cashFlow) {
+    const operatingCashFlow = formatMaybeInteger(quoteData?.cashFlow?.operatingCashFlow);
+    const freeCashFlow = formatMaybeInteger(quoteData?.cashFlow?.freeCashFlow);
+    lines.push(`現金流概況：營業現金流 ${operatingCashFlow}、自由現金流 ${freeCashFlow}。`);
+  }
+
+  if (quoteData?.governmentBankBuySell) {
+    const net = formatMaybeInteger(quoteData?.governmentBankBuySell?.net);
+    lines.push(`八大行庫：最新買賣超 ${net}。`);
+  }
+
+  if (Array.isArray(quoteData?.dividendPolicy) && quoteData.dividendPolicy.length > 0) {
+    lines.push(`股利政策：已取得近年股利資料 ${quoteData.dividendPolicy.length} 筆。`);
+  }
+
+  if (Array.isArray(quoteData?.news) && quoteData.news.length > 0) {
+    const latestNewsDate =
+      quoteData.news[0]?.date ||
+      quoteData.news[0]?.Date ||
+      quoteData.news[0]?.datetime ||
+      quoteData.news[0]?.Datetime ||
+      "N/A";
+    lines.push(`新聞概況：近期待讀 ${quoteData.news.length} 則（最近日期 ${latestNewsDate}）。`);
+  }
+
+  if (Array.isArray(quoteData?.industryChain) && quoteData.industryChain.length > 0) {
+    lines.push(`產業鏈概況：已取得 ${quoteData.industryChain.length} 筆相關資料。`);
+  }
+
   return lines;
 };
 
@@ -409,6 +480,7 @@ const buildFallbackFollowupText = (content, quoteData) => {
   const source = quote?.source || "FinMind";
   const asOf = quote?.asOf || "N/A";
   const extendedContextLines = buildExtendedContextLines(quoteData);
+  const newsLinkLines = buildNewsLinkLines(quoteData?.news);
 
   if (/目標價|合理價/.test(text)) {
     const lines = [
@@ -419,6 +491,7 @@ const buildFallbackFollowupText = (content, quoteData) => {
     ];
 
     lines.push(...extendedContextLines);
+    lines.push(...newsLinkLines);
     lines.push(`資料來源：${source}，時間：${asOf}。`);
     lines.push("以上資訊僅供參考，非投資建議。");
     return lines.join("\n");
@@ -440,6 +513,7 @@ const buildFallbackFollowupText = (content, quoteData) => {
     ];
 
     lines.push(...extendedContextLines);
+    lines.push(...newsLinkLines);
     lines.push(`資料來源：${source}，時間：${asOf}。`);
     lines.push("以上資訊僅供參考，非投資建議。");
     return lines.join("\n");
@@ -448,6 +522,9 @@ const buildFallbackFollowupText = (content, quoteData) => {
   const baseLines = buildFallbackQuoteText(quote).split("\n");
   if (extendedContextLines.length > 0) {
     baseLines.splice(baseLines.length - 2, 0, ...extendedContextLines);
+  }
+  if (newsLinkLines.length > 0) {
+    baseLines.splice(baseLines.length - 2, 0, ...newsLinkLines);
   }
   return baseLines.join("\n");
 };
