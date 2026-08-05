@@ -16,7 +16,7 @@ import { getTwStockQuote, selectAndFetchAPIsForContext } from "../src/services/m
 const tools = [
   {
     name: "get_stock_quote",
-    description: "取得台股（TWSE/TPEx）最新行情。僅支援 4 碼台股代號，例如 2330、0050、6462。",
+    description: "取得台股最新行情（資料源：FinMind）。僅支援 4 碼台股代號，例如 2330、0050、6462。",
     inputSchema: {
       type: "object",
       properties: {
@@ -31,7 +31,7 @@ const tools = [
   {
     name: "get_stock_context",
     description:
-      "依據使用者問題取得台股查詢上下文，回傳基礎行情與對應的擴充資料（如法人、融資融券、指數等）。",
+      "依據使用者問題取得台股查詢上下文（資料源：FinMind），回傳基礎行情與對應的擴充資料（如法人、融資融券、指數等）。",
     inputSchema: {
       type: "object",
       properties: {

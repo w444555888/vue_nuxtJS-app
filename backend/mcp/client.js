@@ -28,6 +28,7 @@ const initializeMCPClient = async () => {
   const transport = new StdioClientTransport({
     command: process.execPath,
     args: [getServerScriptPath()],
+    // FINMIND_API_TOKEN。
     env: process.env,
   });
 

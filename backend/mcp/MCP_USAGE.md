@@ -69,8 +69,8 @@
 
 ## 3.5 `backend/src/services/market/twStock.js`（server-side 能力核心）
 
-1. 查 TWSE/TPEx MIS 行情
-2. 查 TWSE OpenAPI 補充欄位（PE、殖利率、PB、日 K 資訊等）
+1. 查 FinMind 台股行情資料（例如 TaiwanStockPrice）
+2. 查 FinMind 估值與補充欄位（例如 TaiwanStockPER、殖利率、PB、日 K 資訊等）
 3. 依 `userQuery` 關鍵字做 API 選擇
 4. 整合成 `get_stock_quote` 或 `get_stock_context` 回傳資料
 5. 內建 timeout、快取、容錯
@@ -115,7 +115,7 @@
 - 「幫我查 2330 外資買賣超與盤勢」
 
 2. 提供能力（server-side）
-- 能把 symbol 正規化、抓行情、補 OpenAPI、依語意挑資料、回傳結構化結果
+- 能把 symbol 正規化、抓 FinMind 行情與籌碼資料、依語意挑資料、回傳結構化結果
 
 可記成一句：
 
@@ -141,5 +141,16 @@
 4. server-side（能力提供端）
 - 指 `twStock.js`
 - 專注在資料來源整合、商業規則、容錯與效能
+
+---
+
+## 8. FinMind Token 設定
+
+建議在 backend 環境變數設定：
+
+- `FINMIND_API_TOKEN=你的 Token`
+- `FINMIND_BASE_URL=https://api.finmindtrade.com/api/v4`（可選，通常不需改）
+
+`backend/mcp/client.js` 會把 `process.env` 透傳給 `stock-server.js`，因此 `twStock.js` 能直接讀取 token。
 
 ---

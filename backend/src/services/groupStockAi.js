@@ -304,7 +304,7 @@ const buildFallbackQuoteText = (quote) => {
         : `${quote.changePercent.toFixed(2)}%`)
     : "N/A";
   const asOf = quote?.asOf || "N/A";
-  const source = quote?.source || "TWSE/TPEx";
+  const source = quote?.source || "FinMind";
   const peText = Number.isFinite(quote?.peRatio) ? quote.peRatio.toFixed(2) : "N/A";
   const dividendYieldText = Number.isFinite(quote?.dividendYield)
     ? `${quote.dividendYield.toFixed(2)}%`
@@ -406,7 +406,7 @@ const buildFallbackFollowupText = (content, quoteData) => {
   const text = String(content || "").trim();
   const symbolText = `${quote?.name || quote?.symbol || "台股"} (${quote?.symbol || "N/A"})`;
   const priceText = formatMaybeNumber(quote?.price);
-  const source = quote?.source || "TWSE MIS";
+  const source = quote?.source || "FinMind";
   const asOf = quote?.asOf || "N/A";
   const extendedContextLines = buildExtendedContextLines(quoteData);
 

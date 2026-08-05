@@ -1,9 +1,12 @@
-const REQUEST_TIMEOUT_MS = 3000;
-const OPENAPI_REQUEST_TIMEOUT_MS = 8000;
-const OPENAPI_CACHE_TTL_MS = 10 * 60 * 1000;
-const OPENAPI_BASE_URL = "https://openapi.twse.com.tw/v1";
+const REQUEST_TIMEOUT_MS = 5000;
+const FINMIND_REQUEST_TIMEOUT_MS = 10000;
+const FINMIND_CACHE_TTL_MS = 10 * 60 * 1000;
+const FINMIND_BASE_URL =
+  process.env.FINMIND_BASE_URL || "https://api.finmindtrade.com/api/v4";
+const FINMIND_API_TOKEN = process.env.FINMIND_API_TOKEN || "";
 
-const openApiCache = new Map();
+const finmindCache = new Map();
+let hasWarnedMissingFinmindToken = false;
 
 const createError = (message, status = 400) => {
   const error = new Error(message);
@@ -16,7 +19,7 @@ const toNumber = (value) => {
     return null;
   }
 
-  const normalized = String(value).replace(/,/g, "").trim();
+  const normalized = String(value).replace(/,/g, "").replace(/%/g, "").trim();
   if (!normalized || normalized === "-" || normalized === "--") {
     return null;
   }
@@ -32,56 +35,98 @@ const roundToTwo = (value) => {
   return Math.round(value * 100) / 100;
 };
 
-const formatAsOf = (record) => {
-  const epochMs = toNumber(record?.tlong);
-  if (epochMs && epochMs > 0) {
-    return new Date(epochMs).toISOString();
+const toIsoDate = (value) => {
+  if (!value) {
+    return null;
+  }
+
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    return null;
+  }
+
+  return date.toISOString();
+};
+
+const pickFirstValue = (record, keys) => {
+  if (!record) {
+    return null;
+  }
+
+  for (const key of keys) {
+    const value = record?.[key];
+    if (value !== null && value !== undefined && String(value).trim() !== "") {
+      return value;
+    }
   }
 
   return null;
 };
 
-const parseQuote = (record, market) => {
-  const symbol = String(record?.c || "").trim();
-  const name = String(record?.n || "").trim() || null;
+const getRecordSymbol = (record) => {
+  const raw = pickFirstValue(record, [
+    "stock_id",
+    "StockId",
+    "data_id",
+    "DataId",
+    "Code",
+    "symbol",
+    "Symbol",
+  ]);
+  return raw ? String(raw).trim() : null;
+};
 
-  const lastTradePrice = toNumber(record?.z);
-  const previousClose = toNumber(record?.y);
-  const fallbackPrice = toNumber(record?.o);
+const getRecordDate = (record) => {
+  return pickFirstValue(record, ["date", "Date", "datetime", "Datetime"]);
+};
 
-  const price =
-    lastTradePrice !== null
-      ? lastTradePrice
-      : previousClose !== null
-      ? previousClose
-      : fallbackPrice;
-
-  if (!symbol || price === null) {
+const getLatestRecord = (list, symbol = null) => {
+  if (!Array.isArray(list) || list.length === 0) {
     return null;
   }
 
-  let change = null;
-  let changePercent = null;
-  if (previousClose !== null && previousClose !== 0) {
-    change = roundToTwo(price - previousClose);
-    changePercent = roundToTwo((change / previousClose) * 100);
+  const scoped = symbol
+    ? list.filter((item) => String(getRecordSymbol(item) || "") === String(symbol))
+    : list;
+
+  if (scoped.length === 0) {
+    return null;
   }
 
-  return {
-    symbol,
-    market,
-    name,
-    price,
-    previousClose,
-    change,
-    changePercent,
-    volume: toNumber(record?.v),
-    asOf: formatAsOf(record),
-    source: "TWSE MIS",
-  };
+  return scoped
+    .slice()
+    .sort((a, b) => {
+      const aTime = Date.parse(String(getRecordDate(a) || ""));
+      const bTime = Date.parse(String(getRecordDate(b) || ""));
+      const aSafe = Number.isFinite(aTime) ? aTime : 0;
+      const bSafe = Number.isFinite(bTime) ? bTime : 0;
+      return bSafe - aSafe;
+    })[0];
 };
 
-const fetchWithTimeout = async (url, timeoutMs = REQUEST_TIMEOUT_MS) => {
+const getDateNDaysAgo = (days) => {
+  const date = new Date();
+  date.setDate(date.getDate() - days);
+  return date.toISOString().slice(0, 10);
+};
+
+const buildQueryString = (params = {}) => {
+  const search = new URLSearchParams();
+
+  for (const [key, value] of Object.entries(params)) {
+    if (value === undefined || value === null || value === "") {
+      continue;
+    }
+    search.append(key, String(value));
+  }
+
+  return search.toString();
+};
+
+const fetchWithTimeout = async (
+  url,
+  { timeoutMs = REQUEST_TIMEOUT_MS, headers = {} } = {}
+) => {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
 
@@ -91,6 +136,7 @@ const fetchWithTimeout = async (url, timeoutMs = REQUEST_TIMEOUT_MS) => {
       signal: controller.signal,
       headers: {
         Accept: "application/json",
+        ...headers,
       },
     });
 
@@ -109,104 +155,161 @@ const fetchWithTimeout = async (url, timeoutMs = REQUEST_TIMEOUT_MS) => {
   }
 };
 
-const fetchMisQuote = async (symbol, marketPrefix, marketName) => {
-  const query = `${marketPrefix}_${symbol}.tw`;
-  const url = `https://mis.twse.com.tw/stock/api/getStockInfo.jsp?ex_ch=${encodeURIComponent(query)}&json=1&delay=0`;
-
-  const data = await fetchWithTimeout(url);
-  const record = Array.isArray(data?.msgArray)
-    ? data.msgArray.find((item) => String(item?.c || "") === symbol)
-    : null;
-
-  if (!record) {
-    return null;
-  }
-
-  return parseQuote(record, marketName);
-};
-
-const getCachedOpenApiData = (cacheKey) => {
-  const cached = openApiCache.get(cacheKey);
+const getCachedData = (cacheKey) => {
+  const cached = finmindCache.get(cacheKey);
   if (!cached) {
     return null;
   }
 
   if (Date.now() >= cached.expiresAt) {
-    openApiCache.delete(cacheKey);
+    finmindCache.delete(cacheKey);
     return null;
   }
 
   return cached.data;
 };
 
-const setCachedOpenApiData = (cacheKey, data) => {
-  openApiCache.set(cacheKey, {
+const setCachedData = (cacheKey, data) => {
+  finmindCache.set(cacheKey, {
     data,
-    expiresAt: Date.now() + OPENAPI_CACHE_TTL_MS,
+    expiresAt: Date.now() + FINMIND_CACHE_TTL_MS,
   });
 };
 
-const fetchOpenApiList = async (path) => {
-  const cacheKey = `openapi:${path}`;
-  const cached = getCachedOpenApiData(cacheKey);
+const fetchFinMindData = async (dataset, params = {}) => {
+  const cleanParams = {
+    dataset,
+    ...params,
+  };
+
+  if (FINMIND_API_TOKEN) {
+    cleanParams.token = FINMIND_API_TOKEN;
+  } else if (!hasWarnedMissingFinmindToken) {
+    hasWarnedMissingFinmindToken = true;
+    console.warn(
+      "FINMIND_API_TOKEN 未設定，FinMind 請求將套用未登入額度限制。"
+    );
+  }
+
+  const cacheIdentityParams = { ...cleanParams };
+  delete cacheIdentityParams.token;
+  const cacheKey = `finmind:${dataset}:${buildQueryString(cacheIdentityParams)}`;
+
+  const cached = getCachedData(cacheKey);
   if (cached) {
     return cached;
   }
 
-  const url = `${OPENAPI_BASE_URL}${path}`;
-  const data = await fetchWithTimeout(url, OPENAPI_REQUEST_TIMEOUT_MS);
-  const list = Array.isArray(data) ? data : [];
+  const queryString = buildQueryString(cleanParams);
+  const url = `${FINMIND_BASE_URL}/data?${queryString}`;
 
-  setCachedOpenApiData(cacheKey, list);
+  const data = await fetchWithTimeout(url, {
+    timeoutMs: FINMIND_REQUEST_TIMEOUT_MS,
+    headers: FINMIND_API_TOKEN
+      ? { Authorization: `Bearer ${FINMIND_API_TOKEN}` }
+      : {},
+  });
 
+  if (data?.status && Number(data.status) !== 200) {
+    throw createError(
+      data?.msg || `FinMind 資料查詢失敗（status=${data.status}）`,
+      502
+    );
+  }
+
+  const list = Array.isArray(data?.data) ? data.data : [];
+  setCachedData(cacheKey, list);
   return list;
 };
 
-const findOpenApiRecordByCode = (list, symbol) => {
-  if (!Array.isArray(list) || !symbol) {
+const getStockInfo = async (symbol) => {
+  const list = await fetchFinMindData("TaiwanStockInfo", { data_id: symbol });
+  return getLatestRecord(list, symbol);
+};
+
+const getLatestStockPrice = async (symbol, days = 60) => {
+  const list = await fetchFinMindData("TaiwanStockPrice", {
+    data_id: symbol,
+    start_date: getDateNDaysAgo(days),
+  });
+  return getLatestRecord(list, symbol);
+};
+
+const getLatestStockPer = async (symbol, days = 180) => {
+  const list = await fetchFinMindData("TaiwanStockPER", {
+    data_id: symbol,
+    start_date: getDateNDaysAgo(days),
+  });
+  return getLatestRecord(list, symbol);
+};
+
+const parseQuote = ({ symbol, infoRecord, priceRecord, perRecord }) => {
+  const market =
+    String(pickFirstValue(infoRecord, ["market", "Market"]) || "").toUpperCase() ||
+    null;
+  const name =
+    String(pickFirstValue(infoRecord, ["stock_name", "stockName", "name", "Name"]) || "") ||
+    null;
+
+  const dayOpen = toNumber(pickFirstValue(priceRecord, ["open", "OpeningPrice"]));
+  const dayHigh = toNumber(pickFirstValue(priceRecord, ["max", "HighestPrice"]));
+  const dayLow = toNumber(pickFirstValue(priceRecord, ["min", "LowestPrice"]));
+  const dayClose = toNumber(pickFirstValue(priceRecord, ["close", "ClosingPrice"]));
+  const dayChange = toNumber(pickFirstValue(priceRecord, ["spread", "Change"]));
+  const tradeVolumeDay = toNumber(
+    pickFirstValue(priceRecord, ["Trading_Volume", "TradeVolume", "volume"])
+  );
+  const tradeValueDay = toNumber(
+    pickFirstValue(priceRecord, ["Trading_money", "TradeValue", "trade_value"])
+  );
+  const transactionCount = toNumber(
+    pickFirstValue(priceRecord, ["Trading_turnover", "Transaction", "trade_turnover"])
+  );
+
+  const price = dayClose;
+  if (!symbol || price === null) {
     return null;
   }
 
-  return (
-    list.find((item) => String(item?.Code || "").trim() === symbol) || null
-  );
-};
-
-const enrichQuoteWithOpenApi = async (quote) => {
-  if (!quote?.symbol) {
-    return quote;
+  const previousClose =
+    dayChange !== null ? roundToTwo(price - dayChange) : null;
+  let change = dayChange;
+  if (change === null && previousClose !== null) {
+    change = roundToTwo(price - previousClose);
   }
 
-  try {
-    const [valuationList, dayTradeList] = await Promise.all([
-      fetchOpenApiList("/exchangeReport/BWIBBU_ALL"),
-      fetchOpenApiList("/exchangeReport/STOCK_DAY_ALL"),
-    ]);
-
-    const valuation = findOpenApiRecordByCode(valuationList, quote.symbol);
-    const dayTrade = findOpenApiRecordByCode(dayTradeList, quote.symbol);
-
-    return {
-      ...quote,
-      peRatio: toNumber(valuation?.PEratio),
-      dividendYield: toNumber(valuation?.DividendYield),
-      pbRatio: toNumber(valuation?.PBratio),
-      dayOpen: toNumber(dayTrade?.OpeningPrice),
-      dayHigh: toNumber(dayTrade?.HighestPrice),
-      dayLow: toNumber(dayTrade?.LowestPrice),
-      dayClose: toNumber(dayTrade?.ClosingPrice),
-      dayChange: toNumber(dayTrade?.Change),
-      tradeVolumeDay: toNumber(dayTrade?.TradeVolume),
-      tradeValueDay: toNumber(dayTrade?.TradeValue),
-      transactionCount: toNumber(dayTrade?.Transaction),
-      valuationDate: valuation?.Date || null,
-      dayTradeDate: dayTrade?.Date || null,
-      source: "TWSE MIS + TWSE OpenAPI",
-    };
-  } catch (error) {
-    // OpenAPI 欄位屬於增強資訊；若失敗仍保留 MIS 即時報價。
-    return quote;
+  let changePercent = null;
+  if (previousClose !== null && previousClose !== 0 && change !== null) {
+    changePercent = roundToTwo((change / previousClose) * 100);
   }
+
+  return {
+    symbol,
+    market,
+    name,
+    price,
+    previousClose,
+    change,
+    changePercent,
+    volume: tradeVolumeDay,
+    asOf: toIsoDate(getRecordDate(priceRecord)),
+    peRatio: toNumber(pickFirstValue(perRecord, ["PER", "PEratio", "pe_ratio"])),
+    dividendYield: toNumber(
+      pickFirstValue(perRecord, ["dividend_yield", "DividendYield", "yield"])
+    ),
+    pbRatio: toNumber(pickFirstValue(perRecord, ["PBR", "PBratio", "pb_ratio"])),
+    dayOpen,
+    dayHigh,
+    dayLow,
+    dayClose,
+    dayChange,
+    tradeVolumeDay,
+    tradeValueDay,
+    transactionCount,
+    valuationDate: getRecordDate(perRecord) || null,
+    dayTradeDate: getRecordDate(priceRecord) || null,
+    source: "FinMind TaiwanStockPrice + TaiwanStockPER",
+  };
 };
 
 export const normalizeTwStockSymbol = (input) => {
@@ -227,25 +330,28 @@ export const normalizeTwStockSymbol = (input) => {
 
 export const getTwStockQuote = async (inputSymbol) => {
   const symbol = normalizeTwStockSymbol(inputSymbol);
+  const [infoRecord, priceRecord, perRecord] = await Promise.all([
+    getStockInfo(symbol),
+    getLatestStockPrice(symbol),
+    getLatestStockPer(symbol),
+  ]);
 
-  const twseQuote = await fetchMisQuote(symbol, "tse", "TWSE");
-  if (twseQuote) {
-    return enrichQuoteWithOpenApi(twseQuote);
+  const quote = parseQuote({ symbol, infoRecord, priceRecord, perRecord });
+  if (!quote) {
+    throw createError(`查無台股代號 ${symbol} 的行情資料`, 404);
   }
 
-  const tpexQuote = await fetchMisQuote(symbol, "otc", "TPEx");
-  if (tpexQuote) {
-    return enrichQuoteWithOpenApi(tpexQuote);
-  }
-
-  throw createError(`查無台股代號 ${symbol} 的行情資料`, 404);
+  return quote;
 };
 
 // ===== 融資融券相關 =====
 export const getMarginData = async (symbol) => {
   try {
-    const list = await fetchOpenApiList("/exchangeReport/MI_MARGN");
-    const record = findOpenApiRecordByCode(list, symbol);
+    const list = await fetchFinMindData("TaiwanStockMarginPurchaseShortSale", {
+      data_id: symbol,
+      start_date: getDateNDaysAgo(90),
+    });
+    const record = getLatestRecord(list, symbol);
 
     if (!record) {
       return null;
@@ -253,11 +359,39 @@ export const getMarginData = async (symbol) => {
 
     return {
       symbol,
-      marginBuyBalance: toNumber(record?.MarginBuy),
-      marginSellBalance: toNumber(record?.MarginSell),
-      shortSellBalance: toNumber(record?.ShortSale),
-      marginRatio: toNumber(record?.MarginBalance),
-      date: record?.Date || null,
+      marginBuyBalance: toNumber(
+        pickFirstValue(record, [
+          "MarginPurchaseTodayBalance",
+          "MarginPurchaseBalance",
+          "margin_purchase_today_balance",
+          "margin_purchase_balance",
+        ])
+      ),
+      marginSellBalance: toNumber(
+        pickFirstValue(record, [
+          "ShortSaleTodayBalance",
+          "ShortSaleBalance",
+          "short_sale_today_balance",
+          "short_sale_balance",
+        ])
+      ),
+      shortSellBalance: toNumber(
+        pickFirstValue(record, [
+          "ShortSale",
+          "ShortSaleToday",
+          "short_sale",
+          "short_sale_today",
+        ])
+      ),
+      marginRatio: toNumber(
+        pickFirstValue(record, [
+          "MarginPurchaseUseRate",
+          "margin_purchase_use_rate",
+          "MarginPurchaseLimit",
+          "margin_purchase_limit",
+        ])
+      ),
+      date: getRecordDate(record) || null,
     };
   } catch (error) {
     return null;
@@ -267,8 +401,11 @@ export const getMarginData = async (symbol) => {
 // 借券賣出股數
 export const getBorrowableShares = async (symbol) => {
   try {
-    const list = await fetchOpenApiList("/SBL/TWT96U");
-    const record = findOpenApiRecordByCode(list, symbol);
+    const list = await fetchFinMindData("TaiwanStockSecuritiesLending", {
+      data_id: symbol,
+      start_date: getDateNDaysAgo(90),
+    });
+    const record = getLatestRecord(list, symbol);
 
     if (!record) {
       return null;
@@ -276,9 +413,21 @@ export const getBorrowableShares = async (symbol) => {
 
     return {
       symbol,
-      borrowableShares: toNumber(record?.BorrowableShares),
-      borrowedShares: toNumber(record?.BorrowedShares),
-      date: record?.Date || null,
+      borrowableShares: toNumber(
+        pickFirstValue(record, [
+          "SecuritiesLendingBalance",
+          "securities_lending_balance",
+          "BorrowableShares",
+        ])
+      ),
+      borrowedShares: toNumber(
+        pickFirstValue(record, [
+          "SecuritiesLendingSale",
+          "securities_lending_sale",
+          "BorrowedShares",
+        ])
+      ),
+      date: getRecordDate(record) || null,
     };
   } catch (error) {
     return null;
@@ -288,7 +437,14 @@ export const getBorrowableShares = async (symbol) => {
 // ===== 法人持股相關 =====
 export const getLegalEntityTopHoldings = async () => {
   try {
-    return await fetchOpenApiList("/fund/MI_QFIIS_sort_20");
+    const list = await fetchFinMindData("TaiwanStockInstitutionalInvestorsBuySell", {
+      start_date: getDateNDaysAgo(10),
+    });
+    const latestDate = getRecordDate(getLatestRecord(list));
+    const latest = latestDate
+      ? list.filter((item) => String(getRecordDate(item) || "") === String(latestDate))
+      : list;
+    return latest.slice(0, 50);
   } catch (error) {
     return [];
   }
@@ -296,7 +452,7 @@ export const getLegalEntityTopHoldings = async () => {
 
 export const getLegalEntitySectorDistribution = async () => {
   try {
-    return await fetchOpenApiList("/fund/MI_QFIIS_cat");
+    return await getLegalEntityTopHoldings();
   } catch (error) {
     return [];
   }
@@ -305,8 +461,11 @@ export const getLegalEntitySectorDistribution = async () => {
 // ===== 大盤相關 =====
 export const getIndexData = async () => {
   try {
-    const list = await fetchOpenApiList("/exchangeReport/MI_INDEX");
-    return list && Array.isArray(list) ? list[0] || null : null;
+    const list = await fetchFinMindData("TaiwanStockTotalReturnIndex", {
+      data_id: "TAIEX",
+      start_date: getDateNDaysAgo(30),
+    });
+    return getLatestRecord(list);
   } catch (error) {
     return null;
   }
@@ -314,7 +473,21 @@ export const getIndexData = async () => {
 
 export const getTopTradeVolume20 = async () => {
   try {
-    return await fetchOpenApiList("/exchangeReport/MI_INDEX20");
+    const list = await fetchFinMindData("TaiwanStockPrice", {
+      start_date: getDateNDaysAgo(7),
+    });
+    const latestDate = getRecordDate(getLatestRecord(list));
+    if (!latestDate) {
+      return [];
+    }
+
+    return list
+      .filter((item) => String(getRecordDate(item) || "") === String(latestDate))
+      .sort(
+        (a, b) =>
+          (toNumber(b?.Trading_Volume) || 0) - (toNumber(a?.Trading_Volume) || 0)
+      )
+      .slice(0, 20);
   } catch (error) {
     return [];
   }
@@ -322,8 +495,21 @@ export const getTopTradeVolume20 = async () => {
 
 export const getCrossMarketInfo = async () => {
   try {
-    const list = await fetchOpenApiList("/exchangeReport/MI_INDEX4");
-    return list && Array.isArray(list) ? list[0] || null : null;
+    const [taiexList, tpexList] = await Promise.all([
+      fetchFinMindData("TaiwanStockTotalReturnIndex", {
+        data_id: "TAIEX",
+        start_date: getDateNDaysAgo(30),
+      }),
+      fetchFinMindData("TaiwanStockTotalReturnIndex", {
+        data_id: "TPEx",
+        start_date: getDateNDaysAgo(30),
+      }),
+    ]);
+
+    return {
+      TAIEX: getLatestRecord(taiexList),
+      TPEx: getLatestRecord(tpexList),
+    };
   } catch (error) {
     return null;
   }
@@ -332,21 +518,45 @@ export const getCrossMarketInfo = async () => {
 // ===== 中期趨勢相關 =====
 export const getMonthlyTradeData = async (symbol) => {
   try {
-    const list = await fetchOpenApiList("/exchangeReport/FMSRFK_ALL");
-    const record = findOpenApiRecordByCode(list, symbol);
+    const list = await fetchFinMindData("TaiwanStockPrice", {
+      data_id: symbol,
+      start_date: getDateNDaysAgo(45),
+    });
 
-    if (!record) {
+    if (!Array.isArray(list) || list.length === 0) {
       return null;
     }
 
+    const sorted = list
+      .slice()
+      .sort((a, b) => Date.parse(String(getRecordDate(b) || "")) - Date.parse(String(getRecordDate(a) || "")));
+    const latestMonth = String(getRecordDate(sorted[0]) || "").slice(0, 7);
+    const monthRows = sorted.filter(
+      (item) => String(getRecordDate(item) || "").slice(0, 7) === latestMonth
+    );
+
+    if (monthRows.length === 0) {
+      return null;
+    }
+
+    const highs = monthRows.map((item) => toNumber(item?.max)).filter(Number.isFinite);
+    const lows = monthRows.map((item) => toNumber(item?.min)).filter(Number.isFinite);
+    const volumes = monthRows
+      .map((item) => toNumber(item?.Trading_Volume))
+      .filter(Number.isFinite);
+    const values = monthRows
+      .map((item) => toNumber(item?.Trading_money))
+      .filter(Number.isFinite);
+    const latest = monthRows[0];
+
     return {
       symbol,
-      monthlyClose: toNumber(record?.ClosingPrice),
-      monthlyHigh: toNumber(record?.HighestPrice),
-      monthlyLow: toNumber(record?.LowestPrice),
-      monthlyVolume: toNumber(record?.TradeVolume),
-      monthlyValue: toNumber(record?.TradeValue),
-      date: record?.Date || null,
+      monthlyClose: toNumber(latest?.close),
+      monthlyHigh: highs.length > 0 ? Math.max(...highs) : null,
+      monthlyLow: lows.length > 0 ? Math.min(...lows) : null,
+      monthlyVolume: volumes.length > 0 ? volumes.reduce((sum, n) => sum + n, 0) : null,
+      monthlyValue: values.length > 0 ? values.reduce((sum, n) => sum + n, 0) : null,
+      date: getRecordDate(latest) || null,
     };
   } catch (error) {
     return null;
@@ -355,21 +565,45 @@ export const getMonthlyTradeData = async (symbol) => {
 
 export const getYearlyTradeData = async (symbol) => {
   try {
-    const list = await fetchOpenApiList("/exchangeReport/FMNPTK_ALL");
-    const record = findOpenApiRecordByCode(list, symbol);
+    const list = await fetchFinMindData("TaiwanStockPrice", {
+      data_id: symbol,
+      start_date: getDateNDaysAgo(400),
+    });
 
-    if (!record) {
+    if (!Array.isArray(list) || list.length === 0) {
       return null;
     }
 
+    const sorted = list
+      .slice()
+      .sort((a, b) => Date.parse(String(getRecordDate(b) || "")) - Date.parse(String(getRecordDate(a) || "")));
+    const latestYear = String(getRecordDate(sorted[0]) || "").slice(0, 4);
+    const yearRows = sorted.filter(
+      (item) => String(getRecordDate(item) || "").slice(0, 4) === latestYear
+    );
+
+    if (yearRows.length === 0) {
+      return null;
+    }
+
+    const highs = yearRows.map((item) => toNumber(item?.max)).filter(Number.isFinite);
+    const lows = yearRows.map((item) => toNumber(item?.min)).filter(Number.isFinite);
+    const volumes = yearRows
+      .map((item) => toNumber(item?.Trading_Volume))
+      .filter(Number.isFinite);
+    const values = yearRows
+      .map((item) => toNumber(item?.Trading_money))
+      .filter(Number.isFinite);
+    const latest = yearRows[0];
+
     return {
       symbol,
-      yearlyClose: toNumber(record?.ClosingPrice),
-      yearlyHigh: toNumber(record?.HighestPrice),
-      yearlyLow: toNumber(record?.LowestPrice),
-      yearlyVolume: toNumber(record?.TradeVolume),
-      yearlyValue: toNumber(record?.TradeValue),
-      year: record?.Year || null,
+      yearlyClose: toNumber(latest?.close),
+      yearlyHigh: highs.length > 0 ? Math.max(...highs) : null,
+      yearlyLow: lows.length > 0 ? Math.min(...lows) : null,
+      yearlyVolume: volumes.length > 0 ? volumes.reduce((sum, n) => sum + n, 0) : null,
+      yearlyValue: values.length > 0 ? values.reduce((sum, n) => sum + n, 0) : null,
+      year: latestYear || null,
     };
   } catch (error) {
     return null;
@@ -378,18 +612,29 @@ export const getYearlyTradeData = async (symbol) => {
 
 export const getDailyAvgPrice = async (symbol) => {
   try {
-    const list = await fetchOpenApiList("/exchangeReport/STOCK_DAY_AVG_ALL");
-    const record = findOpenApiRecordByCode(list, symbol);
+    const list = await fetchFinMindData("TaiwanStockPrice", {
+      data_id: symbol,
+      start_date: getDateNDaysAgo(30),
+    });
+    const record = getLatestRecord(list, symbol);
 
     if (!record) {
       return null;
     }
 
+    const closes = list
+      .map((item) => toNumber(item?.close))
+      .filter(Number.isFinite);
+    const avgClose =
+      closes.length > 0
+        ? roundToTwo(closes.reduce((sum, n) => sum + n, 0) / closes.length)
+        : null;
+
     return {
       symbol,
-      dailyClose: toNumber(record?.ClosingPrice),
-      monthlyAvgPrice: toNumber(record?.MonthAverage),
-      date: record?.Date || null,
+      dailyClose: toNumber(record?.close),
+      monthlyAvgPrice: avgClose,
+      date: getRecordDate(record) || null,
     };
   } catch (error) {
     return null;
@@ -399,7 +644,9 @@ export const getDailyAvgPrice = async (symbol) => {
 // ===== 特殊風險狀態 =====
 export const getAnomalousStocks = async () => {
   try {
-    return await fetchOpenApiList("/announcement/notice");
+    return await fetchFinMindData("TaiwanStockDayTradingSuspension", {
+      start_date: getDateNDaysAgo(30),
+    });
   } catch (error) {
     return [];
   }
@@ -407,18 +654,30 @@ export const getAnomalousStocks = async () => {
 
 export const getPriceVolatility = async (symbol) => {
   try {
-    const list = await fetchOpenApiList("/exchangeReport/TWT84U");
-    const record = findOpenApiRecordByCode(list, symbol);
+    const list = await fetchFinMindData("TaiwanStockPrice", {
+      data_id: symbol,
+      start_date: getDateNDaysAgo(30),
+    });
+    const record = getLatestRecord(list, symbol);
 
     if (!record) {
       return null;
     }
 
+    const closePrice = toNumber(record?.close);
+    const spread = toNumber(record?.spread);
+    const previousClose =
+      closePrice !== null && spread !== null ? closePrice - spread : null;
+    const priceChangePercent =
+      previousClose && previousClose !== 0 && spread !== null
+        ? roundToTwo((spread / previousClose) * 100)
+        : null;
+
     return {
       symbol,
-      priceChange: toNumber(record?.Change),
-      priceChangePercent: toNumber(record?.ChangePercent),
-      date: record?.Date || null,
+      priceChange: spread,
+      priceChangePercent,
+      date: getRecordDate(record) || null,
     };
   } catch (error) {
     return null;
@@ -427,7 +686,9 @@ export const getPriceVolatility = async (symbol) => {
 
 export const getSuspendedSecurities = async () => {
   try {
-    return await fetchOpenApiList("/exchangeReport/TWTAWU");
+    return await fetchFinMindData("TaiwanStockSuspended", {
+      start_date: getDateNDaysAgo(90),
+    });
   } catch (error) {
     return [];
   }
@@ -435,7 +696,9 @@ export const getSuspendedSecurities = async () => {
 
 export const getDividendAnnouncements = async () => {
   try {
-    return await fetchOpenApiList("/exchangeReport/TWT48U_ALL");
+    return await fetchFinMindData("TaiwanStockDividend", {
+      start_date: getDateNDaysAgo(365),
+    });
   } catch (error) {
     return [];
   }
