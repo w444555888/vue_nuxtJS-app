@@ -1,4 +1,5 @@
 import prisma from "../prisma.js";
+import logger from "../utils/logger.js";
 
 const getClientIp = (req) => {
   const forwardedFor = req.headers["x-forwarded-for"];
@@ -46,6 +47,6 @@ export const writeAuditLog = async ({
     });
   } catch (error) {
     // 審計日誌寫入失敗不應影響主要業務流程，因此僅記錄錯誤，不拋出
-    console.error("Audit log write failed:", error.message);
+    logger.error("Audit log write failed", { error: error.message });
   }
 };

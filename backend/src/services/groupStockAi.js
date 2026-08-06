@@ -1,6 +1,7 @@
 import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import prisma from "../prisma.js";
+import logger from "../utils/logger.js";
 import { generateAiText } from "./ai.js";
 import { mcpTools } from "./mcpTools.js";
  
@@ -151,7 +152,7 @@ const executeStockTool = async (symbol, userQuery) => {
       userQuery,
     });
   } catch (error) {
-    console.error(`股票工具執行失敗 (${symbol}):`, error?.message);
+    logger.error(`股票工具執行失敗 (${symbol})`, { error: error?.message });
     return null;
   }
 };
@@ -588,7 +589,9 @@ export const triggerGroupStockAiReply = async ({ roomId, content, io }) => {
       aiText = await generateAiText(buildStockFollowupPrompt(content, toolQuote, effectiveSymbol));
       setRoomStockSession(roomId, effectiveSymbol);
     } catch (aiError) {
-      console.error("群組股票 AI 回覆失敗，改用 fallback:", aiError?.message || aiError);
+      logger.error("群組股票 AI 回覆失敗，改用 fallback", {
+        error: aiError?.message || String(aiError),
+      });
       replyPath = "fallback";
       if (toolQuote?.base) {
         aiText = buildFallbackFollowupText(content, toolQuote);
@@ -608,13 +611,18 @@ export const triggerGroupStockAiReply = async ({ roomId, content, io }) => {
       }
     }
 
-    console.log(
-      `[GROUP_STOCK_AI] room=${roomId} symbol=${effectiveSymbol} REPLY_PATH=${replyPath}`
-    );
+    logger.info("GROUP_STOCK_AI 回覆路徑", {
+      roomId,
+      symbol: effectiveSymbol,
+      replyPath,
+    });
 
     const botMessage = await saveBotMessage(botUser.id, roomId, aiText);
     emitBotMessage(io, roomId, botMessage);
   } catch (error) {
-    console.error("群組股票 AI 自動回覆失敗:", error);
+    logger.error("群組股票 AI 自動回覆失敗", {
+      error: error?.message,
+      stack: error?.stack,
+    });
   }
 };

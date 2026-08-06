@@ -1,10 +1,11 @@
 import { PrismaClient } from "@prisma/client";
 import { PrismaPg } from "@prisma/adapter-pg";
 import pg from "pg";
+import logger from "./utils/logger.js";
 
 // 驗證環境變數
 if (!process.env.DATABASE_URL) {
-  console.error("錯誤：DATABASE_URL 環境變數未設置");
+  logger.error("DATABASE_URL 環境變數未設置");
   process.exit(1);
 }
 
@@ -12,13 +13,17 @@ if (!process.env.DATABASE_URL) {
 const connectionString = process.env.DATABASE_URL;
 const pool = new pg.Pool({ connectionString });
 const adapter = new PrismaPg(pool);
-const prisma = new PrismaClient({ adapter });
+const prisma = new PrismaClient({ 
+  adapter,
+  // 可選：在開發環境顯示查詢日誌
+  log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+});
 
 // 處理連接錯誤
 prisma.$connect()
-  .then(() => console.log("數據庫連接成功"))
+  .then(() => logger.info("數據庫連接成功"))
   .catch((err) => {
-    console.error("數據庫連接失敗:", err);
+    logger.error("數據庫連接失敗", { error: err.message });
     process.exit(1);
   });
 

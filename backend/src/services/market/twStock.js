@@ -1,4 +1,5 @@
 import dayjs from "dayjs";
+import logger from "../../utils/logger.js";
 
 const REQUEST_TIMEOUT_MS = 5000;
 const FINMIND_REQUEST_TIMEOUT_MS = 10000;
@@ -232,7 +233,7 @@ const fetchFinMindData = async (dataset, params = {}) => {
     cleanParams.token = FINMIND_API_TOKEN;
   } else if (!hasWarnedMissingFinmindToken) {
     hasWarnedMissingFinmindToken = true;
-    console.warn(
+    logger.warn(
       "FINMIND_API_TOKEN 未設定，FinMind 請求將套用未登入額度限制。"
     );
   }
@@ -1027,7 +1028,7 @@ export const selectAndFetchAPIsForContext = async (symbol, userQuery) => {
     // 基礎行情（總是查）
     result.base = await getTwStockQuote(symbol);
   } catch (error) {
-    console.error(`基礎行情查詢失敗 (${symbol}):`, error?.message);
+    logger.error(`基礎行情查詢失敗 (${symbol})`, { error: error?.message });
   }
 
   // 融資融券 - 關鍵字：融資、融券、借券、法人、主力
@@ -1036,7 +1037,7 @@ export const selectAndFetchAPIsForContext = async (symbol, userQuery) => {
       result.margin = await getMarginData(symbol);
       result.borrowable = await getBorrowableShares(symbol);
     } catch (error) {
-      console.error(`融資融券查詢失敗 (${symbol}):`, error?.message);
+      logger.error(`融資融券查詢失敗 (${symbol})`, { error: error?.message });
     }
   }
 
@@ -1045,7 +1046,7 @@ export const selectAndFetchAPIsForContext = async (symbol, userQuery) => {
     try {
       result.monthly = await getMonthlyTradeData(symbol);
     } catch (error) {
-      console.error(`月成交查詢失敗 (${symbol}):`, error?.message);
+      logger.error(`月成交查詢失敗 (${symbol})`, { error: error?.message });
     }
   }
 
@@ -1054,7 +1055,7 @@ export const selectAndFetchAPIsForContext = async (symbol, userQuery) => {
     try {
       result.yearly = await getYearlyTradeData(symbol);
     } catch (error) {
-      console.error(`年成交查詢失敗 (${symbol}):`, error?.message);
+      logger.error(`年成交查詢失敗 (${symbol})`, { error: error?.message });
     }
   }
 
@@ -1063,7 +1064,7 @@ export const selectAndFetchAPIsForContext = async (symbol, userQuery) => {
     try {
       result.volatility = await getPriceVolatility(symbol);
     } catch (error) {
-      console.error(`波動率查詢失敗 (${symbol}):`, error?.message);
+      logger.error(`波動率查詢失敗 (${symbol})`, { error: error?.message });
     }
   }
 
@@ -1074,7 +1075,7 @@ export const selectAndFetchAPIsForContext = async (symbol, userQuery) => {
       result.topVolume20 = await getTopTradeVolume20();
       result.crossMarket = await getCrossMarketInfo();
     } catch (error) {
-      console.error(`大盤查詢失敗:`, error?.message);
+      logger.error("大盤查詢失敗", { error: error?.message });
     }
   }
 
@@ -1083,7 +1084,7 @@ export const selectAndFetchAPIsForContext = async (symbol, userQuery) => {
     try {
       result.legalEntityTop = await getLegalEntityTopHoldings();
     } catch (error) {
-      console.error(`法人持股查詢失敗:`, error?.message);
+      logger.error("法人持股查詢失敗", { error: error?.message });
     }
   }
 
@@ -1093,7 +1094,7 @@ export const selectAndFetchAPIsForContext = async (symbol, userQuery) => {
       result.dividendInfo = await getDividendAnnouncements();
       result.dividendPolicy = await getDividendPolicy(symbol);
     } catch (error) {
-      console.error(`除權息查詢失敗:`, error?.message);
+      logger.error("除權息查詢失敗", { error: error?.message });
     }
   }
 
@@ -1102,7 +1103,7 @@ export const selectAndFetchAPIsForContext = async (symbol, userQuery) => {
     try {
       result.news = await getStockNews(symbol);
     } catch (error) {
-      console.error(`新聞查詢失敗 (${symbol}):`, error?.message);
+      logger.error(`新聞查詢失敗 (${symbol})`, { error: error?.message });
     }
   }
 
@@ -1111,7 +1112,7 @@ export const selectAndFetchAPIsForContext = async (symbol, userQuery) => {
     try {
       result.industryChain = await getStockIndustryChain(symbol);
     } catch (error) {
-      console.error(`產業鏈查詢失敗 (${symbol}):`, error?.message);
+      logger.error(`產業鏈查詢失敗 (${symbol})`, { error: error?.message });
     }
   }
 
@@ -1120,7 +1121,7 @@ export const selectAndFetchAPIsForContext = async (symbol, userQuery) => {
     try {
       result.cashFlow = await getCashFlowStatement(symbol);
     } catch (error) {
-      console.error(`現金流查詢失敗 (${symbol}):`, error?.message);
+      logger.error(`現金流查詢失敗 (${symbol})`, { error: error?.message });
     }
   }
 
@@ -1129,7 +1130,7 @@ export const selectAndFetchAPIsForContext = async (symbol, userQuery) => {
     try {
       result.governmentBankBuySell = await getGovernmentBankBuySell(symbol);
     } catch (error) {
-      console.error(`八大行庫查詢失敗 (${symbol}):`, error?.message);
+      logger.error(`八大行庫查詢失敗 (${symbol})`, { error: error?.message });
     }
   }
 
@@ -1138,7 +1139,7 @@ export const selectAndFetchAPIsForContext = async (symbol, userQuery) => {
     try {
       result.monthRevenue = await getMonthRevenue(symbol);
     } catch (error) {
-      console.error(`月營收查詢失敗 (${symbol}):`, error?.message);
+      logger.error(`月營收查詢失敗 (${symbol})`, { error: error?.message });
     }
   }
 
@@ -1147,7 +1148,7 @@ export const selectAndFetchAPIsForContext = async (symbol, userQuery) => {
     try {
       result.financialStatements = await getFinancialStatements(symbol);
     } catch (error) {
-      console.error(`財報查詢失敗 (${symbol}):`, error?.message);
+      logger.error(`財報查詢失敗 (${symbol})`, { error: error?.message });
     }
   }
 
@@ -1184,7 +1185,7 @@ export const selectAndFetchAPIsForContext = async (symbol, userQuery) => {
       result.financialStatements =
         result.financialStatements || financialStatements;
     } catch (error) {
-      console.error(`詳細資料補充失敗 (${symbol}):`, error?.message);
+      logger.error(`詳細資料補充失敗 (${symbol})`, { error: error?.message });
     }
   }
 

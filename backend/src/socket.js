@@ -1,4 +1,5 @@
 import prisma from "./prisma.js";
+import logger from "./utils/logger.js";
 import { triggerGroupStockAiReply } from "./services/groupStockAi.js";
 
 /**
@@ -58,7 +59,7 @@ export default (io) => {
     }
 
     userConnections.set(authenticatedUserId, socket.id);
-    console.log(`使用者連接: ${socket.id}, userId=${authenticatedUserId}`);
+    logger.info(`使用者連接`, { socketId: socket.id, userId: authenticatedUserId });
 
     // 使用者連接時記錄用戶ID
     socket.on("set_user_id", (userId) => {
@@ -68,7 +69,7 @@ export default (io) => {
       }
 
       userConnections.set(authenticatedUserId, socket.id);
-      console.log(`用戶 ${authenticatedUserId} 的 Socket ID: ${socket.id}`);
+      logger.info(`用戶的 Socket ID 已設置`, { userId: authenticatedUserId, socketId: socket.id });
     });
 
     // 使用者加入聊天室
@@ -131,7 +132,7 @@ export default (io) => {
         message: `使用者 ${authenticatedUserId} 進入了聊天室`,
       });
 
-      console.log(`使用者 ${authenticatedUserId} 加入聊天室 ${roomId}`);
+      logger.info(`使用者加入聊天室`, { userId: authenticatedUserId, roomId });
     });
 
     socket.on("leave_room", (data) => {
@@ -203,9 +204,9 @@ export default (io) => {
           ack({ success: true, event });
         }
 
-        console.log(`新消息 [房間 ${roomId}]: ${content}`);
+        logger.info(`新聊天室消息`, { roomId, userId: authenticatedUserId, content: content?.substring(0, 100) });
       } catch (error) {
-        console.error("訊息保存失敗:", error);
+        logger.error("聊天室訊息保存失敗", { error: error.message, roomId, userId: authenticatedUserId });
         if (ack) {
           ack({ success: false, message: "訊息發送失敗" });
         } else {
@@ -267,7 +268,7 @@ export default (io) => {
         io.to(`room_${roomId}`).emit("message_updated", event);
         ack?.({ success: true, event });
       } catch (error) {
-        console.error("消息編輯失敗:", error);
+        logger.error("消息編輯失敗", { error: error.message, roomId, messageId });
         ack?.({ success: false, message: "消息編輯失敗" });
       }
     });
@@ -310,7 +311,7 @@ export default (io) => {
         io.to(`room_${roomId}`).emit("message_deleted", event);
         ack?.({ success: true, event });
       } catch (error) {
-        console.error("消息刪除失敗:", error);
+        logger.error("消息刪除失敗", { error: error.message, roomId, messageId });
         ack?.({ success: false, message: "消息刪除失敗" });
       }
     });
@@ -358,7 +359,7 @@ export default (io) => {
         }
       }
 
-      console.log(`用戶 ${authenticatedUserId} 加入與用戶 ${friendId} 的私聊`);
+      logger.info(`用戶加入私聊`, { userId: authenticatedUserId, friendId });
     });
 
     socket.on("leave_private_chat", (data) => {
@@ -449,9 +450,9 @@ export default (io) => {
           }
         }
 
-        console.log(`新私聊消息 [${authenticatedUserId} -> ${friendId}]: ${content}`);
+        logger.info(`新私聊消息`, { senderId: authenticatedUserId, receiverId: friendId, content: content?.substring(0, 100) });
       } catch (error) {
-        console.error("私聊保存失敗:", error);
+        logger.error("私聊保存失敗", { error: error.message, senderId: authenticatedUserId, receiverId: friendId });
         if (ack) {
           ack({ success: false, message: "訊息發送失敗" });
         } else {
@@ -530,7 +531,7 @@ export default (io) => {
         io.to(conversationId).emit("private_message_updated", event);
         ack?.({ success: true, event });
       } catch (error) {
-        console.error("私聊消息編輯失敗:", error);
+        logger.error("私聊消息編輯失敗", { error: error.message, messageId });
         ack?.({ success: false, message: "私聊消息編輯失敗" });
       }
     });
@@ -587,7 +588,7 @@ export default (io) => {
         io.to(conversationId).emit("private_message_deleted", event);
         ack?.({ success: true, event });
       } catch (error) {
-        console.error("私聊消息刪除失敗:", error);
+        logger.error("私聊消息刪除失敗", { error: error.message, messageId });
         ack?.({ success: false, message: "私聊消息刪除失敗" });
       }
     });
@@ -607,12 +608,12 @@ export default (io) => {
       for (const [userId, socketId] of userConnections.entries()) {
         if (socketId === socket.id) {
           userConnections.delete(userId);
-          console.log(`用戶 ${userId} 的連接已移除`);
+          logger.info(`用戶連接已移除`, { userId });
           break;
         }
       }
 
-      console.log(`使用者斷開連接: ${socket.id}`);
+      logger.info(`使用者斷開連接`, { socketId: socket.id });
     });
   });
 };

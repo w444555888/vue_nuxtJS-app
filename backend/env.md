@@ -7,6 +7,9 @@ REFRESH_TOKEN_SECRET="w444555888_refresh"
 PORT=3001
 NODE_ENV=development
 
+# 日誌設置
+LOG_LEVEL=debug                # 日誌等級：debug, info, warn, error（開發用 debug，生產用 info）
+
 # Token 有效期
 ACCESS_TOKEN_EXPIRY=30m       # Access Token 有效期：15分鐘
 REFRESH_TOKEN_EXPIRY=7d       # Refresh Token 有效期：7天

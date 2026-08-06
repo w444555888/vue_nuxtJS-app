@@ -4,6 +4,9 @@ import cors from "cors";
 import http from "http";
 import { Server as SocketIO } from "socket.io";
 import jwt from "jsonwebtoken";
+import morgan from "morgan";
+import logger from "./utils/logger.js";
+import performanceMiddleware from "./middleware/performance.js";
 import socketHandler from "./socket.js";
 import authRoutes from "./routes/auth.js";
 import chatRoutes from "./routes/chat.js";
@@ -24,9 +27,17 @@ const io = new SocketIO(server, {
 app.set("io", io);
 
 io.engine.on("connection_error", (err) => {
-  console.error(`[WS 連線異常] ${err.message} (code: ${err.code})`);
-  console.error(`請求: ${err.req?.url}, IP: ${err.req?.socket?.remoteAddress}`);
+  logger.error(`[WS 連線異常] ${err.message} (code: ${err.code})`, {
+    url: err.req?.url,
+    ip: err.req?.socket?.remoteAddress,
+  });
 });
+
+// HTTP 日誌中間件（使用 morgan）
+app.use(morgan(':remote-addr - :remote-user [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length] - :response-time ms'));
+
+// 性能監控中間件
+app.use(performanceMiddleware);
 
 app.use(express.json());
 app.use(cors());
@@ -65,13 +76,20 @@ app.get("/", (req, res) => {
 });
 
 app.use((err, req, res, next) => {
-  console.error("錯誤:", err);
+  logger.error("API 錯誤", {
+    message: err.message,
+    stack: err.stack,
+    path: req.path,
+    method: req.method,
+  });
   res.status(500).json({ error: "伺服器錯誤" });
 });
 
 const PORT = process.env.PORT || 3001;
 server.listen(PORT, () => {
-  console.log(`\n聊天服務器已啟動`);
-  console.log(`地址: http://localhost:${PORT}`);
-  console.log(`WebSocket: ws://localhost:${PORT}\n`);
+  logger.info("聊天服務器已啟動", {
+    address: `http://localhost:${PORT}`,
+    websocket: `ws://localhost:${PORT}`,
+    environment: process.env.NODE_ENV || 'development'
+  });
 });

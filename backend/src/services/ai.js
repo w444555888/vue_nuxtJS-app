@@ -1,3 +1,5 @@
+import logger from "../utils/logger.js";
+
 let genAI;
 
 const createError = (message, status = 400) => {
@@ -171,7 +173,7 @@ const generateGeneralReply = async (ai, userMessage) => {
       latestToolData: null,
     };
   } catch (error) {
-    console.error("Gemini API 錯誤:", {
+    logger.error("Gemini API 錯誤", {
       status: error?.status,
       message: error?.message,
       errorCode: error?.errorCode,
@@ -224,7 +226,10 @@ const initializeAI = async () => {
         apiKey: process.env.GOOGLE_API_KEY,
       });
     } catch (importError) {
-      console.error("導入 google/genai 失敗:", importError);
+      logger.error("導入 google/genai 失敗", {
+        error: importError?.message,
+        stack: importError?.stack,
+      });
       throw createError("無法初始化 AI 服務", 500);
     }
   }

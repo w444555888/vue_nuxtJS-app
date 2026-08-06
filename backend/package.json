@@ -7,6 +7,16 @@
   "scripts": {
     "start": "node src/index.js",
     "dev": "nodemon src/index.js",
+    "prod": "NODE_ENV=production node src/index.js",
+    "prod:pm2": "pm2 start ecosystem.config.cjs",
+    "prod:stop": "pm2 stop chat-backend",
+    "prod:restart": "pm2 restart ecosystem.config.cjs --update-env",
+    "prod:delete": "pm2 delete chat-backend",
+    "monitor": "pm2 monit",
+    "logs": "pm2 logs",
+    "logs:error": "powershell -NoProfile -Command \"Get-Content -Path 'logs/error.log' -Encoding utf8 -Wait\"",
+    "logs:performance": "powershell -NoProfile -Command \"Get-Content -Path 'logs/performance.log' -Encoding utf8 -Wait\"",
+    "logs:all": "powershell -NoProfile -Command \"Get-Content -Path 'logs/all.log' -Encoding utf8 -Wait\"",
     "prisma:migrate": "prisma migrate dev",
     "prisma:generate": "prisma generate",
     "prisma:studio": "prisma studio",
@@ -27,10 +37,13 @@
     "dotenv": "^17.4.2",
     "express": "^5.2.1",
     "jsonwebtoken": "^9.0.3",
+    "morgan": "^1.11.0",
     "multer": "^2.1.1",
     "pg": "^8.11.3",
+    "pm2": "^7.0.3",
     "prisma": "^7.8.0",
-    "socket.io": "^4.8.3"
+    "socket.io": "^4.8.3",
+    "winston": "^3.19.0"
   },
   "devDependencies": {
     "nodemon": "^3.1.14"

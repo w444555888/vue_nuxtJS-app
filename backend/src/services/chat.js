@@ -1,4 +1,5 @@
 import prisma from "../prisma.js";
+import logger from "../utils/logger.js";
 
 const createError = (message, status = 400) => {
   const error = new Error(message);
@@ -592,7 +593,10 @@ export const handleMediaUpload = async (
         cleanup(uploadId);
       }
     } catch (cleanupError) {
-      console.error("清理分片失敗:", cleanupError);
+      logger.error("清理分片失敗", {
+        error: cleanupError?.message,
+        stack: cleanupError?.stack,
+      });
     }
 
     if (error?.code === "SELF_SIGNED_CERT_IN_CHAIN") {

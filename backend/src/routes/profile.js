@@ -2,6 +2,7 @@ import express from "express";
 import { verifyToken } from "../middleware/auth.js";
 import { successResponse, errorResponse } from "../utils/responseHandler.js";
 import { getMyProfile, updateMyProfile } from "../services/profile.js";
+import logger from "../utils/logger.js";
 
 const router = express.Router();
 
@@ -12,7 +13,7 @@ router.get("/me", verifyToken, async (req, res) => {
 
     return successResponse(res, user, "獲取個人資料成功", 200);
   } catch (error) {
-    console.error("獲取個人資料失敗:", error);
+    logger.error("獲取個人資料失敗", { error: error.message, stack: error.stack });
     return errorResponse(res, error, error.status || 500);
   }
 });
@@ -29,7 +30,7 @@ router.patch("/update", verifyToken, async (req, res) => {
       200
     );
   } catch (error) {
-    console.error("更新個人資料失敗:", error);
+    logger.error("更新個人資料失敗", { error: error.message, stack: error.stack });
     return errorResponse(res, error, error.status || 500);
   }
 });

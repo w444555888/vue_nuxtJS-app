@@ -1,6 +1,7 @@
 import express from "express";
 import { verifyToken } from "../middleware/auth.js";
 import { successResponse, errorResponse } from "../utils/responseHandler.js";
+import logger from "../utils/logger.js";
 import {
   registerUser,
   loginUser,
@@ -42,7 +43,7 @@ router.post("/register", async (req, res) => {
     });
     return successResponse(res, result, "註冊成功", 201);
   } catch (error) {
-    console.error("註冊失敗:", error);
+    logger.error("註冊失敗", { error: error.message, stack: error.stack });
     const context = getAuditContextFromRequest(req);
     await writeAuditLog({
       action: "AUTH_REGISTER",
@@ -84,7 +85,7 @@ router.post("/login", async (req, res) => {
     });
     return successResponse(res, result, "登入成功", 200);
   } catch (error) {
-    console.error("登入失敗:", error);
+    logger.error("登入失敗", { error: error.message, stack: error.stack });
     const context = getAuditContextFromRequest(req);
     await writeAuditLog({
       action: "AUTH_LOGIN",
@@ -104,7 +105,7 @@ router.get("/me", verifyToken, async (req, res) => {
     const user = await getCurrentUser(req.user.id);
     return successResponse(res, { user }, "成功獲取使用者信息", 200);
   } catch (error) {
-    console.error("獲取使用者信息失敗:", error);
+    logger.error("獲取使用者信息失敗", { error: error.message, stack: error.stack });
     return errorResponse(res, error, error.status || 500);
   }
 });
@@ -119,7 +120,7 @@ router.post("/update-avatar", verifyToken, async (req, res) => {
     const user = await updateUserAvatar(req.user.id, avatar);
     return successResponse(res, { user }, "頭像更新成功", 200);
   } catch (error) {
-    console.error("頭像更新失敗:", error);
+    logger.error("頭像更新失敗", { error: error.message, stack: error.stack });
     return errorResponse(res, error, error.status || 500);
   }
 });
@@ -166,7 +167,7 @@ router.post("/refresh", async (req, res) => {
       200
     );
   } catch (error) {
-    console.error("Token 刷新失敗:", error);
+    logger.error("Token 刷新失敗", { error: error.message, stack: error.stack });
     const context = getAuditContextFromRequest(req);
     await writeAuditLog({
       action: "AUTH_REFRESH",
@@ -193,7 +194,7 @@ router.post("/logout", verifyToken, async (req, res) => {
     });
     return successResponse(res, {}, "登出成功", 200);
   } catch (error) {
-    console.error("登出失敗:", error);
+    logger.error("登出失敗", { error: error.message, stack: error.stack });
     const context = getAuditContextFromRequest(req);
     await writeAuditLog({
       action: "AUTH_LOGOUT",

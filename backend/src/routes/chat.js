@@ -1,6 +1,7 @@
 import express from "express";
 import { verifyToken } from "../middleware/auth.js";
 import { successResponse, errorResponse } from "../utils/responseHandler.js";
+import logger from "../utils/logger.js";
 import upload from "../middleware/upload.js";
 import {
   getUserRooms,
@@ -28,7 +29,7 @@ router.get("/rooms", verifyToken, async (req, res) => {
     const rooms = await getUserRooms(req.user.id);
     return successResponse(res, rooms, "獲取聊天室列表成功", 200);
   } catch (error) {
-    console.error("獲取聊天室失敗:", error);
+    logger.error("獲取聊天室失敗", { error: error.message, stack: error.stack });
     return errorResponse(res, error, error.status || 500);
   }
 });
@@ -44,7 +45,7 @@ router.post("/rooms", verifyToken, async (req, res) => {
     const room = await createRoom(req.user.id, name, description);
     return successResponse(res, room, "聊天室創建成功", 201);
   } catch (error) {
-    console.error("創建聊天室失敗:", error);
+    logger.error("創建聊天室失敗", { error: error.message, stack: error.stack });
     return errorResponse(res, error, error.status || 500);
   }
 });
@@ -55,7 +56,7 @@ router.delete("/rooms/:roomId", verifyToken, async (req, res) => {
     const deletedRoom = await deleteRoom(req.user.id, roomId);
     return successResponse(res, deletedRoom, "聊天室已刪除", 200);
   } catch (error) {
-    console.error("刪除聊天室失敗:", error);
+    logger.error("刪除聊天室失敗", { error: error.message, stack: error.stack });
     return errorResponse(res, error, error.status || 500);
   }
 });
@@ -67,7 +68,7 @@ router.patch("/rooms/:roomId", verifyToken, async (req, res) => {
     const updatedRoom = await updateRoom(req.user.id, roomId, name, description);
     return successResponse(res, updatedRoom, "聊天室已更新", 200);
   } catch (error) {
-    console.error("編輯聊天室失敗:", error);
+    logger.error("編輯聊天室失敗", { error: error.message, stack: error.stack });
     return errorResponse(res, error, error.status || 500);
   }
 });
@@ -90,7 +91,7 @@ router.post("/rooms/:roomId/invite", verifyToken, async (req, res) => {
       200
     );
   } catch (error) {
-    console.error("邀請好友失敗:", error);
+    logger.error("邀請好友失敗", { error: error.message, stack: error.stack });
     return errorResponse(res, error, error.status || 500);
   }
 });
@@ -117,7 +118,7 @@ router.post("/rooms/:roomId/messages", verifyToken, async (req, res) => {
 
     return successResponse(res, message, "消息已發送", 201);
   } catch (error) {
-    console.error("發送消息失敗:", error);
+    logger.error("發送消息失敗", { error: error.message, stack: error.stack });
     return errorResponse(res, error, error.status || 500);
   }
 });
@@ -128,7 +129,7 @@ router.get("/rooms/:roomId/messages", verifyToken, async (req, res) => {
     const messages = await getRoomMessages(roomId);
     return successResponse(res, messages, "獲取消息成功", 200);
   } catch (error) {
-    console.error("獲取消息失敗:", error);
+    logger.error("獲取消息失敗", { error: error.message, stack: error.stack });
     return errorResponse(res, error, error.status || 500);
   }
 });
@@ -155,7 +156,7 @@ router.patch("/rooms/:roomId/messages/:messageId", verifyToken, async (req, res)
 
     return successResponse(res, updatedMessage, "消息已更新", 200);
   } catch (error) {
-    console.error("編輯消息失敗:", error);
+    logger.error("編輯消息失敗", { error: error.message, stack: error.stack });
     return errorResponse(res, error, error.status || 500);
   }
 });
@@ -177,7 +178,7 @@ router.delete("/rooms/:roomId/messages/:messageId", verifyToken, async (req, res
 
     return successResponse(res, deletedMessage, "消息已刪除", 200);
   } catch (error) {
-    console.error("刪除消息失敗:", error);
+    logger.error("刪除消息失敗", { error: error.message, stack: error.stack });
     return errorResponse(res, error, error.status || 500);
   }
 });
@@ -187,7 +188,7 @@ router.get("/private-conversations", verifyToken, async (req, res) => {
     const conversations = await getPrivateConversations(req.user.id);
     return successResponse(res, conversations, "獲取私聊對話列表成功", 200);
   } catch (error) {
-    console.error("獲取私聊對話失敗:", error);
+    logger.error("獲取私聊對話失敗", { error: error.message, stack: error.stack });
     return errorResponse(res, error, error.status || 500);
   }
 });
@@ -198,7 +199,7 @@ router.get("/private/:friendId", verifyToken, async (req, res) => {
     const data = await getPrivateMessages(req.user.id, friendId);
     return successResponse(res, data, "獲取私聊消息成功", 200);
   } catch (error) {
-    console.error("獲取私聊消息失敗:", error);
+    logger.error("獲取私聊消息失敗", { error: error.message, stack: error.stack });
     return errorResponse(res, error, error.status || 500);
   }
 });
@@ -228,7 +229,7 @@ router.post("/private/:friendId/messages", verifyToken, async (req, res) => {
 
     return successResponse(res, message, "消息已發送", 201);
   } catch (error) {
-    console.error("發送私聊失敗:", error);
+    logger.error("發送私聊失敗", { error: error.message, stack: error.stack });
     return errorResponse(res, error, error.status || 500);
   }
 });
@@ -257,7 +258,7 @@ router.patch("/private/:friendId/messages/:messageId", verifyToken, async (req, 
 
     return successResponse(res, updatedMessage, "私聊消息已更新", 200);
   } catch (error) {
-    console.error("編輯私聊消息失敗:", error);
+    logger.error("編輯私聊消息失敗", { error: error.message, stack: error.stack });
     return errorResponse(res, error, error.status || 500);
   }
 });
@@ -281,7 +282,7 @@ router.delete("/private/:friendId/messages/:messageId", verifyToken, async (req,
 
     return successResponse(res, deletedMessage, "私聊消息已刪除", 200);
   } catch (error) {
-    console.error("刪除私聊消息失敗:", error);
+    logger.error("刪除私聊消息失敗", { error: error.message, stack: error.stack });
     return errorResponse(res, error, error.status || 500);
   }
 });
@@ -300,7 +301,7 @@ router.patch("/private/:friendId/mark-read", verifyToken, async (req, res) => {
 
     return successResponse(res, result, "消息已標記為已讀", 200);
   } catch (error) {
-    console.error("標記已讀失敗:", error);
+    logger.error("標記已讀失敗", { error: error.message, stack: error.stack });
     return errorResponse(res, error, error.status || 500);
   }
 });
@@ -319,7 +320,7 @@ router.post("/upload", verifyToken, upload.single("file"), async (req, res) => {
 
     return successResponse(res, result.data, result.message, 200);
   } catch (error) {
-    console.error("上傳失敗:", error);
+    logger.error("上傳失敗", { error: error.message, stack: error.stack });
     return errorResponse(res, error.message || "媒體上傳失敗", error.status || 500);
   }
 });

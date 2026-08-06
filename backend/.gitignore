@@ -18,6 +18,13 @@ yarn-error.log
 
 # OS
 .DS_Store
+
+# Logs and monitoring
+logs/
+*.log
+
+# PM2
+.pm2/
 Thumbs.db
 
 # Prisma

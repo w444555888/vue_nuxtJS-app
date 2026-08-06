@@ -2,6 +2,7 @@ import express from "express";
 import { verifyToken } from "../middleware/auth.js";
 import { successResponse, errorResponse } from "../utils/responseHandler.js";
 import { getAiChatResponse } from "../services/ai.js";
+import logger from "../utils/logger.js";
 
 const router = express.Router();
 
@@ -15,7 +16,7 @@ router.post("/chat", verifyToken, async (req, res) => {
     });
     return successResponse(res, response, "回應成功");
   } catch (error) {
-    console.error("AI 客服錯誤:", error);
+    logger.error("AI 客服錯誤", { error: error.message, stack: error.stack });
     return errorResponse(res, error, error.status || 500);
   }
 });
