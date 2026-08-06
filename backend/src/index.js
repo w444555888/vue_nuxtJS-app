@@ -33,10 +33,10 @@ io.engine.on("connection_error", (err) => {
   });
 });
 
-// HTTP 日誌中間件（使用 morgan）
-app.use(morgan(':remote-addr - :remote-user [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length] - :response-time ms'));
+// 使用 Morgan - HTTP Request Logger 
+app.use(morgan(':remote-addr - :remote-user [:date[clf]] ":method :url HTTP/:http-version" :status :res[content-length] ":referrer" ":user-agent" - :response-time ms'));
 
-// 性能監控中間件
+// 使用 winston-logger-perf 性能監控 
 app.use(performanceMiddleware);
 
 app.use(express.json());
