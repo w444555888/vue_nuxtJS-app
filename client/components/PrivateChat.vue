@@ -98,10 +98,10 @@
         type="text" 
         placeholder="輸入消息..." 
         class="chat-input"
-        @keyup.enter="sendMessage"
+        @keyup.enter.exact.prevent="sendMessage"
       >
-      <button @click="sendMessage" class="btn-send" :disabled="isUploading">
-        {{ isUploading ? '上傳中...' : '發送' }}
+      <button @click="sendMessage" class="btn-send" :disabled="isUploading || isSending">
+        {{ isUploading ? '上傳中...' : isSending ? '發送中...' : '發送' }}
       </button>
     </div>
 
@@ -187,6 +187,9 @@ const showEditModal = ref(false)
 const editingContent = ref('')
 const editingMessage = ref<Message | null>(null)
 const isUploading = ref(false)
+const isSending = ref(false)
+const lastSendAt = ref(0)
+const SEND_THROTTLE_MS = 500
 const uploadProgress = ref(0)
 const previewMedia = ref<string | null>(null)
 const previewType = ref<'image' | 'video' | null>(null)
@@ -412,12 +415,25 @@ const clearImagePreview = () => {
 }
 
 const sendMessage = async () => {
-  if (!messageContent.value.trim() && !selectedFile.value) {
+  if (isSending.value || isUploading.value) {
+    return
+  }
+
+  const now = Date.now()
+  if (now - lastSendAt.value < SEND_THROTTLE_MS) {
+    return
+  }
+
+  const content = messageContent.value.trim()
+
+  if (!content && !selectedFile.value) {
     message.error('請輸入消息或選擇圖片/影片')
     return
   }
 
   try {
+    lastSendAt.value = now
+    isSending.value = true
     let imageUrl: string | undefined = undefined
 
     // 如果有選擇的媒體文件，先上傳
@@ -436,8 +452,6 @@ const sendMessage = async () => {
       imageUrl = uploadResult.data?.mediaUrl
       message.success('媒體上傳成功')
     }
-
-    const content = messageContent.value.trim()
 
     // 通過 Socket 發送，後端統一寫入資料庫與廣播
     const result = await socket.sendPrivateMessage(
@@ -459,6 +473,7 @@ const sendMessage = async () => {
     console.error('私聊消息發送失敗:', error)
     message.error('發送失敗，請稍後再試')
   } finally {
+    isSending.value = false
     isUploading.value = false
     uploadProgress.value = 0
   }

@@ -382,6 +382,12 @@ export const useSocket = () => {
     }
   }
 
+  const onFriendDataChanged = (callback: (data: any) => void) => {
+    if (socketRef.value) {
+      socketRef.value.on('friend_data_changed', callback)
+    }
+  }
+
   const onPrivateMissedMessages = (callback: (data: any[]) => void) => {
     if (socketRef.value) {
       socketRef.value.on('private_missed_messages', callback)
@@ -431,6 +437,17 @@ export const useSocket = () => {
       }
 
       socketRef.value.off('private_messages_read')
+    }
+  }
+
+  const offFriendDataChanged = (callback?: (data: any) => void) => {
+    if (socketRef.value) {
+      if (callback) {
+        socketRef.value.off('friend_data_changed', callback)
+        return
+      }
+
+      socketRef.value.off('friend_data_changed')
     }
   }
 
@@ -501,12 +518,14 @@ export const useSocket = () => {
     onReceivePrivateMessage,
     onPrivateMessageReceived,
     onPrivateMessagesRead,
+    onFriendDataChanged,
     onPrivateMissedMessages,
     onPrivateMessageUpdated,
     onPrivateMessageDeleted,
     offReceivePrivateMessage,
     offPrivateMessageReceived,
     offPrivateMessagesRead,
+    offFriendDataChanged,
     offPrivateMissedMessages,
     offPrivateMessageUpdated,
     offPrivateMessageDeleted

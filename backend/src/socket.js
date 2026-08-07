@@ -59,6 +59,7 @@ export default (io) => {
     }
 
     userConnections.set(authenticatedUserId, socket.id);
+    socket.join(`user_${authenticatedUserId}`);
     logger.info(`使用者連接`, { socketId: socket.id, userId: authenticatedUserId });
 
     // 使用者連接時記錄用戶ID

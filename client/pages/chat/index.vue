@@ -585,10 +585,8 @@ const acceptFriend = async (request: any) => {
   const result = await friendService.acceptFriendRequest(request.id)
   if (result.success) {
     message.success(result.message || '已接受好友請求')
-    // 刷新好友列表
-    await loadFriends()
-    // 刷新待处理请求
-    await loadPendingRequests()
+    // 刷新好友列表和待處理請求
+    await Promise.all([loadFriends(), loadPendingRequests()])
   } else {
     message.error(result.message || '操作失败')
   }
@@ -712,6 +710,10 @@ const handlePrivateMessagesRead = async () => {
   await loadPrivateConversations()
 }
 
+const handleFriendDataChanged = async () => {
+  await Promise.all([loadFriends(), loadPendingRequests()])
+}
+
 // 生命周期
 onMounted(async () => {
   syncMobileView()
@@ -727,6 +729,7 @@ onMounted(async () => {
 
   socket.onPrivateMessageReceived(handlePrivateMessageReceived)
   socket.onPrivateMessagesRead(handlePrivateMessagesRead)
+  socket.onFriendDataChanged(handleFriendDataChanged)
 
   // 獲取聊天室列表
   const rooms = await chatService.fetchRooms()
@@ -748,6 +751,7 @@ onMounted(async () => {
 onUnmounted(() => {
   socket.offPrivateMessageReceived(handlePrivateMessageReceived)
   socket.offPrivateMessagesRead(handlePrivateMessagesRead)
+  socket.offFriendDataChanged(handleFriendDataChanged)
   window.removeEventListener('resize', syncMobileView)
 })
 </script>

@@ -13,6 +13,20 @@ import {
 
 const router = express.Router();
 
+const emitFriendDataChanged = (req, userIds = [], reason = "friend_data_changed") => {
+  const io = req.app.get("io");
+  if (!io) return;
+
+  const uniqueUserIds = [...new Set(userIds.filter(Boolean))];
+  uniqueUserIds.forEach((userId) => {
+    io.to(`user_${userId}`).emit("friend_data_changed", {
+      reason,
+      userId,
+      timestamp: Date.now(),
+    });
+  });
+};
+
 // 獲取當前用戶的好友列表
 router.get("/list", verifyToken, async (req, res) => {
   try {
@@ -35,6 +49,8 @@ router.post("/request/send", verifyToken, async (req, res) => {
       return errorResponse(res, "收件人郵箱不能為空", 400);
     }
     const friendRequest = await sendFriendRequest(senderId, receiverEmail);
+
+    emitFriendDataChanged(req, [senderId, friendRequest.receiverId], "friend_request_sent");
 
     return successResponse(
       res,
@@ -66,6 +82,7 @@ router.post("/request/accept/:requestId", verifyToken, async (req, res) => {
     const { requestId } = req.params;
 
     const friend = await acceptFriendRequest(req.user.id, parseInt(requestId, 10));
+    emitFriendDataChanged(req, [friend.user1?.id, friend.user2?.id], "friend_request_accepted");
 
     return successResponse(res, friend, "好友請求已接受", 200);
   } catch (error) {
@@ -80,6 +97,7 @@ router.post("/request/reject/:requestId", verifyToken, async (req, res) => {
     const { requestId } = req.params;
 
     const updated = await rejectFriendRequest(req.user.id, parseInt(requestId, 10));
+    emitFriendDataChanged(req, [updated.senderId, updated.receiverId], "friend_request_rejected");
 
     return successResponse(res, updated, "好友請求已拒絕", 200);
   } catch (error) {
@@ -93,7 +111,9 @@ router.delete("/:friendId", verifyToken, async (req, res) => {
   try {
     const { friendId } = req.params;
 
-    const deleted = await removeFriend(req.user.id, parseInt(friendId, 10));
+    const targetFriendId = parseInt(friendId, 10);
+    const deleted = await removeFriend(req.user.id, targetFriendId);
+    emitFriendDataChanged(req, [req.user.id, targetFriendId], "friend_removed");
 
     return successResponse(res, deleted, "已刪除好友", 200);
   } catch (error) {

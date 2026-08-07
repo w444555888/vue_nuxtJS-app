@@ -136,9 +136,9 @@
         type="text" 
         placeholder="輸入消息..."
         class="chat-input"
-        @keyup.enter="handleSendMessage" />
-      <button @click="handleSendMessage" class="btn-send" :disabled="isUploading">
-        {{ isUploading ? '上傳中...' : '發送' }}
+        @keyup.enter.exact.prevent="handleSendMessage" />
+      <button @click="handleSendMessage" class="btn-send" :disabled="isUploading || isSending">
+        {{ isUploading ? '上傳中...' : isSending ? '發送中...' : '發送' }}
       </button>
     </div>
 
@@ -238,6 +238,9 @@ const inputMessage = ref('')
 const messagesListRef = ref<HTMLElement | null>(null)
 const isLoading = ref(false)
 const isUploading = ref(false)
+const isSending = ref(false)
+const lastSendAt = ref(0)
+const SEND_THROTTLE_MS = 500
 const uploadProgress = ref(0)
 const showEditModal = ref(false)
 const editingContent = ref('')
@@ -438,7 +441,18 @@ const clearImagePreview = () => {
 
 // 發送消息（使用 WebSocket）
 const handleSendMessage = async () => {
-  if (!inputMessage.value.trim() && !selectedFile.value) {
+  if (isSending.value || isUploading.value) {
+    return
+  }
+
+  const now = Date.now()
+  if (now - lastSendAt.value < SEND_THROTTLE_MS) {
+    return
+  }
+
+  const content = inputMessage.value.trim()
+
+  if (!content && !selectedFile.value) {
     message.error('請輸入消息或選擇圖片/影片')
     return
   }
@@ -449,6 +463,8 @@ const handleSendMessage = async () => {
   }
 
   try {
+    lastSendAt.value = now
+    isSending.value = true
     let imageUrl: string | undefined = undefined
 
     // 如果有選擇的媒體文件，先上傳
@@ -472,7 +488,7 @@ const handleSendMessage = async () => {
     const result = await socketSendMessage(
       authStore.user.id, 
       props.room.id, 
-      inputMessage.value,
+      content,
       imageUrl
     )
     if (!result?.success) {
@@ -487,6 +503,7 @@ const handleSendMessage = async () => {
     console.error('發送消息失敗:', error)
     message.error('發送失敗')
   } finally {
+    isSending.value = false
     isUploading.value = false
     uploadProgress.value = 0
   }
