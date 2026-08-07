@@ -13,7 +13,7 @@ export const verifyToken = (req, res, next) => {
       resource: "auth",
       ...context,
     });
-    return res.status(401).json({ error: "沒有 token，無法訪問" });
+    return res.status(401).json({ error: "沒有 Token，無法訪問" });
   }
   try {
     const decoded = jwt.verify(token, process.env.JWT_SECRET);
