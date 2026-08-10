@@ -9,6 +9,9 @@ import {
   deleteRoom,
   updateRoom,
   inviteFriendsToRoom,
+  getPendingRoomInvites,
+  acceptRoomInvite,
+  rejectRoomInvite,
   sendRoomMessage,
   getRoomMessages,
   updateRoomMessage,
@@ -82,16 +85,99 @@ router.post("/rooms/:roomId/invite", verifyToken, async (req, res) => {
       return errorResponse(res, "請提供至少一個好友 ID", 400);
     }
 
-    const invitedMembers = await inviteFriendsToRoom(roomId, friendIds);
+    const invites = await inviteFriendsToRoom(req.user.id, roomId, friendIds);
+
+    const io = req.app.get("io");
+    if (io && invites.length > 0) {
+      invites.forEach((invite) => {
+        io.to(`user_${invite.inviteeId}`).emit("room_invite_received", {
+          inviteId: invite.id,
+          roomId: invite.roomId,
+          roomName: invite.room?.name,
+          inviter: invite.inviter,
+          timestamp: Date.now(),
+        });
+      });
+    }
 
     return successResponse(
       res,
-      invitedMembers,
-      `已邀請 ${invitedMembers.length} 個好友加入聊天室`,
+      invites,
+      `已發送 ${invites.length} 個群組邀請`,
       200
     );
   } catch (error) {
     logger.error("邀請好友失敗", { error: error.message, stack: error.stack });
+    return errorResponse(res, error, error.status || 500);
+  }
+});
+
+router.get("/rooms/invites/pending", verifyToken, async (req, res) => {
+  try {
+    const invites = await getPendingRoomInvites(req.user.id);
+    return successResponse(res, invites, "獲取待處理群組邀請成功", 200);
+  } catch (error) {
+    logger.error("獲取群組邀請失敗", { error: error.message, stack: error.stack });
+    return errorResponse(res, error, error.status || 500);
+  }
+});
+
+router.post("/rooms/invites/:inviteId/accept", verifyToken, async (req, res) => {
+  try {
+    const inviteId = parseInt(req.params.inviteId, 10);
+    const invite = await acceptRoomInvite(req.user.id, inviteId);
+
+    const io = req.app.get("io");
+    if (io) {
+      io.to(`user_${req.user.id}`).emit("room_membership_changed", {
+        roomId: invite.roomId,
+        reason: "room_invite_accepted",
+        invitedBy: invite.inviterId,
+        timestamp: Date.now(),
+      });
+
+      io.to(`room_${invite.roomId}`).emit("room_membership_changed", {
+        roomId: invite.roomId,
+        reason: "room_member_joined",
+        joinedUserId: req.user.id,
+        timestamp: Date.now(),
+      });
+
+      io.to(`user_${invite.inviterId}`).emit("room_invite_status_changed", {
+        inviteId: invite.id,
+        roomId: invite.roomId,
+        inviteeId: req.user.id,
+        status: "accepted",
+        timestamp: Date.now(),
+      });
+    }
+
+    return successResponse(res, invite, "已同意群組邀請並加入群組", 200);
+  } catch (error) {
+    logger.error("同意群組邀請失敗", { error: error.message, stack: error.stack });
+    return errorResponse(res, error, error.status || 500);
+  }
+});
+
+router.post("/rooms/invites/:inviteId/reject", verifyToken, async (req, res) => {
+  try {
+    const inviteId = parseInt(req.params.inviteId, 10);
+    const invite = await rejectRoomInvite(req.user.id, inviteId);
+
+    const io = req.app.get("io");
+    if (io) {
+      io.to(`user_${invite.inviterId}`).emit("room_invite_status_changed", {
+        inviteId: invite.id,
+        roomId: invite.roomId,
+        inviteeId: req.user.id,
+        status: "rejected",
+        timestamp: Date.now(),
+      });
+    }
+
+    return successResponse(res, invite, "已拒絕群組邀請", 200);
+  } catch (error) {
+    logger.error("拒絕群組邀請失敗", { error: error.message, stack: error.stack });
     return errorResponse(res, error, error.status || 500);
   }
 });

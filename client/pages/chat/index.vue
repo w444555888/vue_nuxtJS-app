@@ -195,6 +195,19 @@
       <!-- 好友面板 -->
       <div v-else-if="rightPanelTab === 'friends'" class="panel-content">
         <div class="friends-section">
+          <h3>群組邀請 ({{ pendingRoomInvites.length }})</h3>
+          <div v-if="pendingRoomInvites.length === 0" class="empty-state">暫無邀請</div>
+          <div v-for="invite in pendingRoomInvites" :key="invite.id" class="friend-request invite-request">
+            <div class="invite-request-content">
+              <div class="invite-room-name">{{ invite.room?.name }}</div>
+              <div class="invite-meta">邀請者：{{ invite.inviter?.username }}</div>
+            </div>
+            <button @click="acceptGroupInvite(invite)" class="btn-accept">✓</button>
+            <button @click="rejectGroupInvite(invite)" class="btn-reject">✕</button>
+          </div>
+        </div>
+
+        <div class="friends-section">
           <h3>我的好友 ({{ friends.length }})</h3>
           <div v-if="friends.length === 0" class="empty-state">暫無好友</div>
           <div v-for="friend in friends" :key="friend.id" class="friend-item">
@@ -420,6 +433,7 @@ const roomForm = ref({
 // 好友資料
 const friends = ref<any[]>([])
 const friendRequests = ref<any[]>([])
+const pendingRoomInvites = ref<any[]>([])
 const newFriendEmail = ref('')
 const selectedFriendsForInvite = ref<number[]>([])
 const inviteTargetRoom = ref<any>(null)
@@ -446,6 +460,27 @@ const filteredRooms = computed(() => {
     room.name.toLowerCase().includes(searchQuery.value.toLowerCase())
   )
 })
+
+const refreshRooms = async () => {
+  const result = await chatService.fetchRooms()
+  if (!result.success) {
+    return result
+  }
+
+  const latestRooms = result.data || []
+  if (selectedRoom.value) {
+    const matchedRoom = latestRooms.find((room: any) => room.id === selectedRoom.value.id)
+    if (matchedRoom) {
+      selectedRoom.value = matchedRoom
+      chatStore.setCurrentRoom(matchedRoom)
+    } else {
+      selectedRoom.value = null
+      chatStore.setCurrentRoom(null)
+    }
+  }
+
+  return result
+}
 
 // 可邀請的好友（排除已在房間內的成員）
 const invitableFriends = computed(() => {
@@ -476,7 +511,7 @@ const createRoom = async () => {
     showCreateRoomModal.value = false
     roomForm.value = { name: '', description: '' }
     // 刷新聊天室列表
-    await chatService.fetchRooms()
+    await refreshRooms()
     message.success(result.message || '群組建立成功！')
   } else {
     message.error(result.message || '建立失敗')
@@ -491,7 +526,7 @@ const deleteRoom = (room: any) => {
     if (result.success) {
       message.success(result.message || '群組已刪除')
       // 刷新聊天室列表
-      await chatService.fetchRooms()
+      await refreshRooms()
     } else {
       message.error(result.message || '删除失败')
     }
@@ -520,7 +555,7 @@ const saveRoomEdit = async () => {
     editRoomModal.value.show = false
     editRoomModal.value.room = null
     // 刷新聊天室列表
-    await chatService.fetchRooms()
+    await refreshRooms()
   } else {
     message.error(result.message || '更新失敗')
   }
@@ -677,6 +712,46 @@ const loadPendingRequests = async () => {
   }
 }
 
+const loadPendingRoomInvites = async () => {
+  const result = await chatService.fetchPendingRoomInvites()
+  if (result.success) {
+    pendingRoomInvites.value = result.data || []
+    return
+  }
+
+  pendingRoomInvites.value = []
+}
+
+const acceptGroupInvite = async (invite: any) => {
+  const result = await chatService.acceptRoomInvite(invite.id)
+  if (!result.success) {
+    message.error(result.message || '同意邀請失敗')
+    return
+  }
+
+  message.success(result.message || '已加入群組')
+  await Promise.all([loadPendingRoomInvites(), refreshRooms()])
+
+  const acceptedRoom = result.data?.room
+  if (acceptedRoom?.id) {
+    const room = chatStore.rooms.find((item: any) => item.id === acceptedRoom.id)
+    if (room) {
+      selectRoom(room)
+    }
+  }
+}
+
+const rejectGroupInvite = async (invite: any) => {
+  const result = await chatService.rejectRoomInvite(invite.id)
+  if (!result.success) {
+    message.error(result.message || '拒絕邀請失敗')
+    return
+  }
+
+  message.success(result.message || '已拒絕邀請')
+  await loadPendingRoomInvites()
+}
+
 const handleAvatarUpdated = async () => {
   showAvatarModal.value = false
   // 重新加載聊天室列表以更新頭像信息
@@ -714,6 +789,17 @@ const handleFriendDataChanged = async () => {
   await Promise.all([loadFriends(), loadPendingRequests()])
 }
 
+const handleRoomMembershipChanged = async (payload: any) => {
+  if (payload?.reason === 'room_invite_accepted' || payload?.reason === 'room_member_joined') {
+    await refreshRooms()
+  }
+}
+
+const handleRoomInviteReceived = async () => {
+  await loadPendingRoomInvites()
+  message.info('你收到新的群組邀請，請先同意再加入')
+}
+
 // 生命周期
 onMounted(async () => {
   syncMobileView()
@@ -730,9 +816,11 @@ onMounted(async () => {
   socket.onPrivateMessageReceived(handlePrivateMessageReceived)
   socket.onPrivateMessagesRead(handlePrivateMessagesRead)
   socket.onFriendDataChanged(handleFriendDataChanged)
+  socket.onRoomMembershipChanged(handleRoomMembershipChanged)
+  socket.onRoomInviteReceived(handleRoomInviteReceived)
 
   // 獲取聊天室列表
-  const rooms = await chatService.fetchRooms()
+  const rooms = await refreshRooms()
   if (rooms.success && rooms.data?.length > 0) {
     selectedRoom.value = rooms.data[0]
     chatStore.setCurrentRoom(rooms.data[0])
@@ -743,6 +831,9 @@ onMounted(async () => {
   
   // 獲取待處理的好友請求
   await loadPendingRequests()
+
+  // 獲取待處理群組邀請
+  await loadPendingRoomInvites()
   
   // 獲取私聊會話列表
   await loadPrivateConversations()
@@ -752,6 +843,8 @@ onUnmounted(() => {
   socket.offPrivateMessageReceived(handlePrivateMessageReceived)
   socket.offPrivateMessagesRead(handlePrivateMessagesRead)
   socket.offFriendDataChanged(handleFriendDataChanged)
+  socket.offRoomMembershipChanged(handleRoomMembershipChanged)
+  socket.offRoomInviteReceived(handleRoomInviteReceived)
   window.removeEventListener('resize', syncMobileView)
 })
 </script>

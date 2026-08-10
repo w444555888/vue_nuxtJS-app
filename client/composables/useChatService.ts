@@ -89,6 +89,39 @@ export const useChatService = () => {
     }
   }
 
+  // 獲取待處理群組邀請
+  const fetchPendingRoomInvites = async () => {
+    try {
+      const result = await get('/api/chat/rooms/invites/pending')
+      return { success: result.success, data: result.data || [], message: result.message }
+    } catch (error: any) {
+      console.error('獲取群組邀請失敗:', error)
+      return { success: false, error: error.message, message: error.message }
+    }
+  }
+
+  // 同意群組邀請
+  const acceptRoomInvite = async (inviteId: number) => {
+    try {
+      const result = await post(`/api/chat/rooms/invites/${inviteId}/accept`, {})
+      return { success: result.success, data: result.data, message: result.message }
+    } catch (error: any) {
+      console.error('同意群組邀請失敗:', error)
+      return { success: false, error: error.message, message: error.message }
+    }
+  }
+
+  // 拒絕群組邀請
+  const rejectRoomInvite = async (inviteId: number) => {
+    try {
+      const result = await post(`/api/chat/rooms/invites/${inviteId}/reject`, {})
+      return { success: result.success, data: result.data, message: result.message }
+    } catch (error: any) {
+      console.error('拒絕群組邀請失敗:', error)
+      return { success: false, error: error.message, message: error.message }
+    }
+  }
+
   // 獲取聊天室消息
   const fetchMessages = async (roomId: number) => {
     try {
@@ -369,6 +402,9 @@ export const useChatService = () => {
     deleteRoom,
     updateRoom,
     inviteFriendsToRoom,
+    fetchPendingRoomInvites,
+    acceptRoomInvite,
+    rejectRoomInvite,
     fetchMessages,
     sendMessage,
     editMessage,
