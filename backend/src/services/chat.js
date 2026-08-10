@@ -80,6 +80,11 @@ export const createRoom = async (userId, name, description) => {
 export const deleteRoom = async (userId, roomId) => {
   const room = await prisma.chatRoom.findUnique({
     where: { id: roomId },
+    include: {
+      members: {
+        select: { userId: true },
+      },
+    },
   });
 
   if (!room) {
@@ -90,9 +95,14 @@ export const deleteRoom = async (userId, roomId) => {
     throw createError("只有房主才能刪除群組", 403);
   }
 
-  return prisma.chatRoom.delete({
+  const deletedRoom = await prisma.chatRoom.delete({
     where: { id: roomId },
   });
+
+  return {
+    ...deletedRoom,
+    memberUserIds: room.members.map((member) => member.userId),
+  };
 };
 
 export const updateRoom = async (userId, roomId, name, description) => {

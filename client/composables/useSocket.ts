@@ -400,6 +400,12 @@ export const useSocket = () => {
     }
   }
 
+  const onRoomDeleted = (callback: (data: any) => void) => {
+    if (socketRef.value) {
+      socketRef.value.on('room_deleted', callback)
+    }
+  }
+
   const onPrivateMissedMessages = (callback: (data: any[]) => void) => {
     if (socketRef.value) {
       socketRef.value.on('private_missed_messages', callback)
@@ -485,6 +491,17 @@ export const useSocket = () => {
     }
   }
 
+  const offRoomDeleted = (callback?: (data: any) => void) => {
+    if (socketRef.value) {
+      if (callback) {
+        socketRef.value.off('room_deleted', callback)
+        return
+      }
+
+      socketRef.value.off('room_deleted')
+    }
+  }
+
   const offPrivateMissedMessages = (callback?: (data: any[]) => void) => {
     if (socketRef.value) {
       if (callback) {
@@ -555,6 +572,7 @@ export const useSocket = () => {
     onFriendDataChanged,
     onRoomMembershipChanged,
     onRoomInviteReceived,
+    onRoomDeleted,
     onPrivateMissedMessages,
     onPrivateMessageUpdated,
     onPrivateMessageDeleted,
@@ -564,6 +582,7 @@ export const useSocket = () => {
     offFriendDataChanged,
     offRoomMembershipChanged,
     offRoomInviteReceived,
+    offRoomDeleted,
     offPrivateMissedMessages,
     offPrivateMessageUpdated,
     offPrivateMessageDeleted

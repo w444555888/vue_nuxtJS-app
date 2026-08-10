@@ -800,6 +800,21 @@ const handleRoomInviteReceived = async () => {
   message.info('你收到新的群組邀請，請先同意再加入')
 }
 
+const handleRoomDeleted = async (payload: any) => {
+  const deletedRoomId = Number(payload?.roomId)
+  if (!Number.isInteger(deletedRoomId)) {
+    return
+  }
+
+  if (selectedRoom.value?.id === deletedRoomId) {
+    selectedRoom.value = null
+    chatStore.setCurrentRoom(null)
+    message.warning(`群組「${payload?.roomName || ''}」已被房主刪除`)
+  }
+
+  await refreshRooms()
+}
+
 // 生命周期
 onMounted(async () => {
   syncMobileView()
@@ -818,6 +833,7 @@ onMounted(async () => {
   socket.onFriendDataChanged(handleFriendDataChanged)
   socket.onRoomMembershipChanged(handleRoomMembershipChanged)
   socket.onRoomInviteReceived(handleRoomInviteReceived)
+  socket.onRoomDeleted(handleRoomDeleted)
 
   // 獲取聊天室列表
   const rooms = await refreshRooms()
@@ -845,6 +861,7 @@ onUnmounted(() => {
   socket.offFriendDataChanged(handleFriendDataChanged)
   socket.offRoomMembershipChanged(handleRoomMembershipChanged)
   socket.offRoomInviteReceived(handleRoomInviteReceived)
+  socket.offRoomDeleted(handleRoomDeleted)
   window.removeEventListener('resize', syncMobileView)
 })
 </script>

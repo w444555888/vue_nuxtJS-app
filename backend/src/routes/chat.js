@@ -57,6 +57,27 @@ router.delete("/rooms/:roomId", verifyToken, async (req, res) => {
   try {
     const roomId = parseInt(req.params.roomId, 10);
     const deletedRoom = await deleteRoom(req.user.id, roomId);
+
+    const io = req.app.get("io");
+    if (io) {
+      const affectedUserIds = [...new Set(deletedRoom.memberUserIds || [])];
+      affectedUserIds.forEach((userId) => {
+        io.to(`user_${userId}`).emit("room_deleted", {
+          roomId,
+          roomName: deletedRoom.name,
+          deletedBy: req.user.id,
+          timestamp: Date.now(),
+        });
+      });
+
+      io.to(`room_${roomId}`).emit("room_deleted", {
+        roomId,
+        roomName: deletedRoom.name,
+        deletedBy: req.user.id,
+        timestamp: Date.now(),
+      });
+    }
+
     return successResponse(res, deletedRoom, "聊天室已刪除", 200);
   } catch (error) {
     logger.error("刪除聊天室失敗", { error: error.message, stack: error.stack });
