@@ -51,7 +51,7 @@ const formatPrivateMessageEvent = (message) => ({
 
 export default (io) => {
   io.on("connection", (socket) => {
-    const authenticatedUserId = socket.user?.id;
+    const authenticatedUserId = socket.data?.userId || socket.user?.id;
 
     if (!authenticatedUserId) {
       socket.disconnect(true);
@@ -60,7 +60,24 @@ export default (io) => {
 
     userConnections.set(authenticatedUserId, socket.id);
     socket.join(`user_${authenticatedUserId}`);
-    logger.info(`使用者連接`, { socketId: socket.id, userId: authenticatedUserId });
+    logger.info(`使用者連接`, {
+      socketId: socket.id,
+      userId: authenticatedUserId,
+      recovered: socket.recovered,
+    });
+
+    if (socket.recovered) {
+      logger.info("WS 連線狀態恢復成功", {
+        socketId: socket.id,
+        userId: authenticatedUserId,
+      });
+    }
+
+    // 連線後先送一個事件，讓客戶端初始化 recovery offset。
+    socket.emit("ws_ready", {
+      recovered: socket.recovered,
+      at: Date.now(),
+    });
 
     // 使用者連接時記錄用戶ID
     socket.on("set_user_id", (userId) => {

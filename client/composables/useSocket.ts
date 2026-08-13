@@ -5,8 +5,13 @@ const socketRef = ref<Socket | null>(null)
 const isConnectedRef = ref(false)
 let lastTokenRef: string | null = null
 let isHandlingWsAuthFailure = false
+const connectListenerMap = new WeakMap<
+  (recovered: boolean) => void,
+  () => void
+>()
 
 const DEFAULT_ACK_TIMEOUT_MS = 8000
+const DEFAULT_EMIT_RETRIES = 3
 
 const getConnectedSocket = () => {
   if (socketRef.value && socketRef.value.connected) {
@@ -46,24 +51,13 @@ const emitWithAck = <T = any>(event: string, payload: any, timeoutMs = DEFAULT_A
       return
     }
 
-    let finished = false
-    
-    // 超時還沒收到 ACK，就當失敗
-    const timer = setTimeout(() => {
-      if (!finished) {
-        finished = true
-        reject(new Error(`${event} ACK 超時`))
-      }
-    }, timeoutMs)
-
-    socket.emit(event, payload, (response: T) => {
-      // 若已結案（可能已超時），忽略晚到 ACK
-      if (finished) {
+    // 交給 Socket.IO 的 timeout + retries 機制處理，避免雙重計時器造成判斷衝突。
+    socket.timeout(timeoutMs).emit(event, payload, (error: Error | null, response: T) => {
+      if (error) {
+        reject(new Error(`${event} ACK 超時或重試失敗`))
         return
       }
 
-      finished = true
-      clearTimeout(timer)
       resolve(response)
     })
   })
@@ -75,6 +69,20 @@ export const useSocket = () => {
   const router = useRouter()
 
   const socketUrl = config.public.socketUrl || 'http://127.0.0.1:3001'
+  const wsDebugEnabled = Boolean(config.public.wsDebug)
+
+  const wsDebugLog = (message: string, details?: any) => {
+    if (!wsDebugEnabled) {
+      return
+    }
+
+    if (typeof details === 'undefined') {
+      console.info(`[Socket:debug] ${message}`)
+      return
+    }
+
+    console.info(`[Socket:debug] ${message}`, details)
+  }
 
   // 初始化 Socket 連接（WebSocket 優先；連線中斷時由 Socket.IO 負責重連）
   const initSocket = () => {
@@ -97,6 +105,9 @@ export const useSocket = () => {
       auth: {
         token: currentToken
       },
+      // 針對需要 ACK 的 client emit，啟用自動重送與 ACK 等待時間。
+      retries: DEFAULT_EMIT_RETRIES,
+      ackTimeout: DEFAULT_ACK_TIMEOUT_MS,
       reconnection: true,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
@@ -107,16 +118,23 @@ export const useSocket = () => {
 
     socketRef.value.on('connect', () => {
       isConnectedRef.value = true
-      console.log(`Socket 已連接 (id=${socketRef.value?.id})`)
+      const isRecovered = Boolean(socketRef.value?.recovered)
+      console.log(`Socket 已連接 (id=${socketRef.value?.id}, recovered=${isRecovered})`)
+
+      if (isRecovered) {
+        console.log('[Socket] 連線狀態恢復成功，斷線期間漏掉的事件將由 Socket.IO 補送')
+      } else {
+        console.log('[Socket] 非恢復連線（首次連線或恢復失敗），維持既有 Snapshot + lastSeq 補償流程')
+      }
 
       const engine = socketRef.value?.io.engine
       if (engine) {
-        console.log(`[Socket] transport=${engine.transport.name}`)
+        wsDebugLog(`transport=${engine.transport.name}`)
         engine.once('upgrade', () => {
-          console.log(`[Socket] transport 升級為 ${engine.transport.name}`)
+          wsDebugLog(`transport 升級為 ${engine.transport.name}`)
         })
         engine.once('close', (reason: string) => {
-          console.warn(`[Socket] 底層連線關閉: ${reason}`)
+          wsDebugLog(`底層連線關閉: ${reason}`)
         })
       }
     })
@@ -124,6 +142,10 @@ export const useSocket = () => {
     socketRef.value.on('connect_error', (error: any) => {
       isConnectedRef.value = false
       console.error('Socket 連線失敗(connect_error):', error?.message || error)
+      wsDebugLog('connect_error 詳細資訊', {
+        description: error?.description,
+        context: error?.context,
+      })
 
       // 後端在握手中間件拒絕連線（token 缺失/過期)，走與 HTTP 401 一致的登出流程。
       const errorMessage = String(error?.message || '')
@@ -150,9 +172,14 @@ export const useSocket = () => {
       }
     })
 
-    socketRef.value.on('disconnect', (reason: string) => {
+    socketRef.value.on('disconnect', (reason: string, details?: any) => {
       isConnectedRef.value = false
       console.log(`Socket 已斷開，原因: ${reason}`)
+      wsDebugLog('disconnect 詳細資訊', {
+        message: details?.message,
+        description: details?.description,
+        context: details?.context,
+      })
 
       if (reason === 'io server disconnect') {
         console.warn('[Socket] 伺服器主動斷線，如需重連請手動呼叫 initSocket/socket.connect()')
@@ -164,19 +191,19 @@ export const useSocket = () => {
     })
 
     socketRef.value.io.on('reconnect_attempt', (attempt: number) => {
-      console.warn(`[Socket] 嘗試重連 (${attempt})`)
+      wsDebugLog(`嘗試重連 (${attempt})`)
     })
 
     socketRef.value.io.on('reconnect', (attempt: number) => {
-      console.log(`[Socket] 重連成功 (attempt=${attempt})`)
+      wsDebugLog(`重連成功 (attempt=${attempt})`)
     })
 
     socketRef.value.io.on('reconnect_error', (error: any) => {
-      console.error('[Socket] 重連失敗:', error?.message || error)
+      wsDebugLog('重連失敗', error?.message || error)
     })
 
     socketRef.value.io.on('reconnect_failed', () => {
-      console.error('[Socket] 已達重連上限，停止重連')
+      wsDebugLog('已達重連上限，停止重連')
     })
   }
 
@@ -298,16 +325,25 @@ export const useSocket = () => {
     }
   }
 
-  const onConnect = (callback: () => void) => {
+  const onConnect = (callback: (recovered: boolean) => void) => {
     if (socketRef.value) {
-      socketRef.value.on('connect', callback)
+      const wrappedListener = () => {
+        callback(Boolean(socketRef.value?.recovered))
+      }
+
+      connectListenerMap.set(callback, wrappedListener)
+      socketRef.value.on('connect', wrappedListener)
     }
   }
 
-  const offConnect = (callback?: () => void) => {
+  const offConnect = (callback?: (recovered: boolean) => void) => {
     if (socketRef.value) {
       if (callback) {
-        socketRef.value.off('connect', callback)
+        const wrappedListener = connectListenerMap.get(callback)
+        if (wrappedListener) {
+          socketRef.value.off('connect', wrappedListener)
+          connectListenerMap.delete(callback)
+        }
         return
       }
 
@@ -388,24 +424,6 @@ export const useSocket = () => {
     }
   }
 
-  const onRoomMembershipChanged = (callback: (data: any) => void) => {
-    if (socketRef.value) {
-      socketRef.value.on('room_membership_changed', callback)
-    }
-  }
-
-  const onRoomInviteReceived = (callback: (data: any) => void) => {
-    if (socketRef.value) {
-      socketRef.value.on('room_invite_received', callback)
-    }
-  }
-
-  const onRoomDeleted = (callback: (data: any) => void) => {
-    if (socketRef.value) {
-      socketRef.value.on('room_deleted', callback)
-    }
-  }
-
   const onPrivateMissedMessages = (callback: (data: any[]) => void) => {
     if (socketRef.value) {
       socketRef.value.on('private_missed_messages', callback)
@@ -466,39 +484,6 @@ export const useSocket = () => {
       }
 
       socketRef.value.off('friend_data_changed')
-    }
-  }
-
-  const offRoomMembershipChanged = (callback?: (data: any) => void) => {
-    if (socketRef.value) {
-      if (callback) {
-        socketRef.value.off('room_membership_changed', callback)
-        return
-      }
-
-      socketRef.value.off('room_membership_changed')
-    }
-  }
-
-  const offRoomInviteReceived = (callback?: (data: any) => void) => {
-    if (socketRef.value) {
-      if (callback) {
-        socketRef.value.off('room_invite_received', callback)
-        return
-      }
-
-      socketRef.value.off('room_invite_received')
-    }
-  }
-
-  const offRoomDeleted = (callback?: (data: any) => void) => {
-    if (socketRef.value) {
-      if (callback) {
-        socketRef.value.off('room_deleted', callback)
-        return
-      }
-
-      socketRef.value.off('room_deleted')
     }
   }
 
@@ -570,9 +555,6 @@ export const useSocket = () => {
     onPrivateMessageReceived,
     onPrivateMessagesRead,
     onFriendDataChanged,
-    onRoomMembershipChanged,
-    onRoomInviteReceived,
-    onRoomDeleted,
     onPrivateMissedMessages,
     onPrivateMessageUpdated,
     onPrivateMessageDeleted,
@@ -580,9 +562,6 @@ export const useSocket = () => {
     offPrivateMessageReceived,
     offPrivateMessagesRead,
     offFriendDataChanged,
-    offRoomMembershipChanged,
-    offRoomInviteReceived,
-    offRoomDeleted,
     offPrivateMissedMessages,
     offPrivateMessageUpdated,
     offPrivateMessageDeleted

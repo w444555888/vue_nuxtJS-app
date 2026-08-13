@@ -2,6 +2,7 @@
 const apiBase = process.env.API_BASE || 'http://127.0.0.1:3001'
 const socketUrl = process.env.SOCKET_URL || 'http://127.0.0.1:3001'
 const cloudinaryImageBase = process.env.CLOUDINARY_IMAGE_BASE || 'https://res.cloudinary.com'
+const wsDebug = process.env.WS_DEBUG === '1' || process.env.WS_DEBUG === 'true'
 
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
@@ -63,10 +64,13 @@ export default defineNuxtConfig({
       }
     }
   },
+  // Nuxt 最推薦的方式 env拿取方式，使用 runtimeConfig 取代 process.env
   runtimeConfig: {
+    // public 允許送到瀏覽器，前端可以看到
     public: {
       apiBase,
-      socketUrl
+      socketUrl,
+      wsDebug
     }
   }
 })

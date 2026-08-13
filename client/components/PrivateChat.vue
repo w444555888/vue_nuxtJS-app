@@ -207,7 +207,7 @@ let messageListener: ((data: any) => void) | null = null
 let privateMissedMessagesListener: ((data: any[]) => void) | null = null
 let privateMessageUpdatedListener: ((data: any) => void) | null = null
 let privateMessageDeletedListener: ((data: any) => void) | null = null
-let connectListener: (() => void) | null = null
+let connectListener: ((recovered: boolean) => void) | null = null
 const messageIdSet = ref<Set<number>>(new Set())
 
 // 以 seq 當作 snapshot 游標，讓私聊重連可補回遺失事件。
@@ -291,7 +291,11 @@ const applyDeletedPrivateMessage = (data: any) => {
   messageIdSet.value.delete(messageId)
 }
 
-const joinPrivateWithRecovery = () => {
+const joinPrivateWithRecovery = (useLastSeq: boolean = true) => {
+  if (!useLastSeq) {
+    return
+  }
+
   // Snapshot + WS：私聊先補差異，再回到即時推送。
   socket.joinPrivateChatWithSeq(props.currentUserId, props.friend.id, getLastSeq())
 }
@@ -619,8 +623,13 @@ onMounted(() => {
     events.forEach((event) => applyPrivateMessage(event))
   }
 
-  connectListener = () => {
-    joinPrivateWithRecovery()
+  connectListener = (recovered: boolean) => {
+    if (recovered) {
+      // Recovery 成功時會自動補漏事件，避免重送 join_private_chat。
+      return
+    }
+
+    joinPrivateWithRecovery(true)
   }
 
   socket.onPrivateMissedMessages(privateMissedMessagesListener)

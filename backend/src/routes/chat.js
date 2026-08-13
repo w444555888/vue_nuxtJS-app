@@ -41,7 +41,7 @@ router.post("/rooms", verifyToken, async (req, res) => {
   const { name, description } = req.body;
 
   if (!name) {
-    return errorResponse(res, "聘天室名稱不能為空", 400);
+    return errorResponse(res, "聊天室名稱不能為空", 400);
   }
 
   try {

@@ -22,14 +22,29 @@ const io = new SocketIO(server, {
     origin: process.env.CORS_ORIGIN || "http://localhost:3000",
     methods: ["GET", "POST"],
   },
+  // 連線狀態恢復2分鐘，若斷線超過2分鐘則視為新連線，無法恢復斷線期間的事件。
+  connectionStateRecovery: {
+    maxDisconnectionDuration: 2 * 60 * 1000,
+    skipMiddlewares: false,
+  },
 });
 
 app.set("io", io);
 
 io.engine.on("connection_error", (err) => {
+  const headers = err.req?.headers || {};
+  const safeHeaders = {
+    ...headers,
+    authorization: headers.authorization ? "[redacted]" : undefined,
+    cookie: headers.cookie ? "[redacted]" : undefined,
+  };
+
   logger.error(`[WS 連線異常] ${err.message} (code: ${err.code})`, {
     url: err.req?.url,
     ip: err.req?.socket?.remoteAddress,
+    transport: err.req?._query?.transport,
+    context: err.context,
+    headers: safeHeaders,
   });
 });
 
@@ -63,6 +78,9 @@ io.use((socket, next) => {
       id: decoded.id,
       username: decoded.username,
     };
+    // 將使用者資訊存入 socket.data，(連線恢復時，Socket.IO 會恢復 socket.data)
+    socket.data.userId = decoded.id;
+    socket.data.username = decoded.username;
     return next();
   } catch (error) {
     return next(new Error("未授權：ws token 無效或已過期"));

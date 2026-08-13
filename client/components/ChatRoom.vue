@@ -282,7 +282,7 @@ let roomMessageListener: ((data: any) => void) | null = null
 let roomMissedMessagesListener: ((data: any[]) => void) | null = null
 let messageUpdatedListener: ((data: any) => void) | null = null
 let messageDeletedListener: ((data: any) => void) | null = null
-let connectListener: (() => void) | null = null
+let connectListener: ((recovered: boolean) => void) | null = null
 const joinedRoomId = ref<number | null>(null)
 const messageIdSet = ref<Set<number>>(new Set())
 
@@ -351,13 +351,16 @@ const applyDeletedMessage = (data: any) => {
   messageIdSet.value.delete(messageId)
 }
 
-const joinRoomWithRecovery = () => {
+const joinRoomWithRecovery = (useLastSeq: boolean = true) => {
   if (!authStore.user?.id) {
     return
   }
 
-  // Snapshot + WS：先用 lastSeq 對齊歷史缺口，再持續接收即時事件。
-  joinRoom(authStore.user.id, props.room.id, getLastSeq())
+  if (useLastSeq) {
+    // Snapshot + WS：先用 lastSeq 對齊歷史缺口，再持續接收即時事件。
+    joinRoom(authStore.user.id, props.room.id, getLastSeq())
+  }
+
   joinedRoomId.value = props.room.id
 }
 
@@ -629,8 +632,14 @@ onMounted(async () => {
     applyDeletedMessage(data)
   }
 
-  connectListener = () => {
-    joinRoomWithRecovery()
+  connectListener = (recovered: boolean) => {
+    if (recovered) {
+      // Recovery 成功時房間狀態已恢復，避免重送 join_room 造成重複廣播。
+      joinRoomWithRecovery(false)
+      return
+    }
+
+    joinRoomWithRecovery(true)
   }
 
   onReceiveMessage(roomMessageListener)

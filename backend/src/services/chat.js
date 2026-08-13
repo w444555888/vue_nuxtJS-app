@@ -88,7 +88,7 @@ export const deleteRoom = async (userId, roomId) => {
   });
 
   if (!room) {
-    throw createError("聘天室不存在", 404);
+    throw createError("聊天室不存在", 404);
   }
 
   if (room.creatorId !== userId) {
@@ -111,7 +111,7 @@ export const updateRoom = async (userId, roomId, name, description) => {
   });
 
   if (!room) {
-    throw createError("聘天室不存在", 404);
+    throw createError("聊天室不存在", 404);
   }
 
   if (room.creatorId !== userId) {
@@ -145,7 +145,7 @@ export const inviteFriendsToRoom = async (inviterId, roomId, friendIds) => {
   });
 
   if (!room) {
-    throw createError("聘天室不存在", 404);
+    throw createError("聊天室不存在", 404);
   }
 
   const inviterMembership = await prisma.chatRoomMember.findUnique({
