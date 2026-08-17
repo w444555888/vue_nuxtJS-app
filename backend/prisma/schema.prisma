@@ -83,7 +83,7 @@ model ChatRoomInvite {
 model Message {
   id        Int      @id @default(autoincrement())
   content   String
-  imageUrl  String?  // 图片URL
+  imageUrl  String?  // 圖片URL
 
   userId    Int
   roomId    Int
@@ -132,7 +132,7 @@ model Friend {
 model PrivateMessage {
   id          Int      @id @default(autoincrement()) // 自動編號
   content     String
-  imageUrl    String?  // 图片URL
+  imageUrl    String?  // 圖片URL
   
   senderId    Int
   receiverId  Int
