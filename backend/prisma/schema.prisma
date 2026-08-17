@@ -58,6 +58,7 @@ model ChatRoomMember {
   joinedAt DateTime @default(now())
 
   @@unique([userId, roomId]) // 防止重複加入
+  @@index([roomId, userId]) // 加速房間內成員過濾
 }
 
 model ChatRoomInvite {
@@ -124,6 +125,7 @@ model Friend {
   createdAt DateTime @default(now())
   
   @@unique([userId1, userId2]) // 防止重複關係
+  @@index([userId2, userId1]) // 加速反向好友關係查詢
 }
 
 // 私聊消息模型

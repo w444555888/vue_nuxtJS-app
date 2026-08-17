@@ -140,27 +140,30 @@ export const updateRoom = async (userId, roomId, name, description) => {
 };
 
 export const inviteFriendsToRoom = async (inviterId, roomId, friendIds) => {
-  const room = await prisma.chatRoom.findUnique({
-    where: { id: roomId },
-  });
+  // 先確認聊天室存在，且邀請者是房間成員。
+  const [room, inviterMembership] = await Promise.all([
+    prisma.chatRoom.findUnique({
+      where: { id: roomId },
+    }),
+    prisma.chatRoomMember.findUnique({
+      where: {
+        userId_roomId: {
+          userId: inviterId,
+          roomId,
+        },
+      },
+    }),
+  ]);
 
   if (!room) {
     throw createError("聊天室不存在", 404);
   }
 
-  const inviterMembership = await prisma.chatRoomMember.findUnique({
-    where: {
-      userId_roomId: {
-        userId: inviterId,
-        roomId,
-      },
-    },
-  });
-
   if (!inviterMembership) {
     throw createError("你不是此聊天室的成員，無法邀請好友", 403);
   }
 
+  // 標準化邀請名單：轉整數、去重、過濾無效值與自己。
   const normalizedFriendIds = [...new Set(friendIds
     .map((id) => parseInt(id, 10))
     .filter((id) => Number.isInteger(id) && id > 0 && id !== inviterId))];
@@ -169,31 +172,40 @@ export const inviteFriendsToRoom = async (inviterId, roomId, friendIds) => {
     throw createError("沒有可邀請的有效好友 ID", 400);
   }
   
-  // 驗證好友存在 (單個查詢)
-  const friends = await prisma.user.findMany({
-    where: {
-      id: { in: normalizedFriendIds },
-    },
-    select: { id: true },
-  });
+  // 平行查三件事：使用者存在、好友關係成立、是否已在房間。
+  const [friends, friendRelations, existingMembers] = await Promise.all([
+    prisma.user.findMany({
+      where: {
+        id: { in: normalizedFriendIds },
+      },
+      select: { id: true },
+    }),
+    prisma.friend.findMany({
+      where: {
+        OR: [
+          { userId1: inviterId, userId2: { in: normalizedFriendIds } },
+          { userId2: inviterId, userId1: { in: normalizedFriendIds } },
+        ],
+      },
+      select: {
+        userId1: true,
+        userId2: true,
+      },
+    }),
+    prisma.chatRoomMember.findMany({
+      where: {
+        roomId,
+        userId: { in: normalizedFriendIds },
+      },
+      select: { userId: true },
+    }),
+  ]);
 
   if (friends.length !== normalizedFriendIds.length) {
     throw createError("部分好友不存在", 404);
   }
 
-  const friendRelations = await prisma.friend.findMany({
-    where: {
-      OR: [
-        { userId1: inviterId, userId2: { in: normalizedFriendIds } },
-        { userId2: inviterId, userId1: { in: normalizedFriendIds } },
-      ],
-    },
-    select: {
-      userId1: true,
-      userId2: true,
-    },
-  });
-
+  // 從好友關係中取出「真的和 inviter 是好友」的對方 ID。
   const validFriendIdSet = new Set(
     friendRelations.map((relation) =>
       relation.userId1 === inviterId ? relation.userId2 : relation.userId1
@@ -205,14 +217,7 @@ export const inviteFriendsToRoom = async (inviterId, roomId, friendIds) => {
     throw createError("部分使用者不是你的好友，無法邀請", 403);
   }
 
-  const existingMembers = await prisma.chatRoomMember.findMany({
-    where: {
-      roomId,
-      userId: { in: normalizedFriendIds },
-    },
-    select: { userId: true },
-  });
-
+  // 排除已在群組中的人，只保留可邀請名單。
   const existingMemberIdSet = new Set(existingMembers.map((member) => member.userId));
   const invitableFriendIds = normalizedFriendIds.filter((id) => !existingMemberIdSet.has(id));
 
@@ -220,7 +225,8 @@ export const inviteFriendsToRoom = async (inviterId, roomId, friendIds) => {
     throw createError("選擇的好友都已經在群組中", 400);
   }
 
-  await prisma.$transaction(
+  // 對每位可邀請者做 upsert：已存在就重設 pending，不存在就建立。
+  return prisma.$transaction(
     invitableFriendIds.map((inviteeId) =>
       prisma.chatRoomInvite.upsert({
         where: {
@@ -240,30 +246,20 @@ export const inviteFriendsToRoom = async (inviterId, roomId, friendIds) => {
           inviteeId,
           status: "pending",
         },
+        include: {
+          inviter: {
+            select: { id: true, username: true, avatar: true },
+          },
+          invitee: {
+            select: { id: true, username: true, avatar: true },
+          },
+          room: {
+            select: { id: true, name: true, description: true },
+          },
+        },
       })
     )
   );
-
-  const invitedMembers = await prisma.chatRoomInvite.findMany({
-    where: {
-      roomId,
-      inviteeId: { in: invitableFriendIds },
-      status: "pending",
-    },
-    include: {
-      inviter: {
-        select: { id: true, username: true, avatar: true },
-      },
-      invitee: {
-        select: { id: true, username: true, avatar: true },
-      },
-      room: {
-        select: { id: true, name: true, description: true },
-      },
-    },
-  });
-
-  return invitedMembers;
 };
 
 export const getPendingRoomInvites = async (userId) => {
