@@ -118,39 +118,52 @@ export const getPendingRequests = async (userId) => {
 };
 
 export const acceptFriendRequest = async (userId, requestId) => {
-  const friendRequest = await prisma.friendRequest.findUnique({
-    where: { id: requestId },
-  });
+  return prisma.$transaction(async (tx) => {
+    const friendRequest = await tx.friendRequest.findUnique({
+      where: { id: requestId },
+    });
 
-  if (!friendRequest) {
-    throw createError("請求不存在", 404);
-  }
+    if (!friendRequest) {
+      throw createError("請求不存在", 404);
+    }
 
-  if (friendRequest.receiverId !== userId) {
-    throw createError("無權限操作此請求", 403);
-  }
+    if (friendRequest.receiverId !== userId) {
+      throw createError("無權限操作此請求", 403);
+    }
 
-  await prisma.friendRequest.update({
-    where: { id: requestId },
-    data: { status: "accepted" },
-  });
+    if (friendRequest.status !== "pending") {
+      throw createError("此好友請求已被處理", 400);
+    }
 
-  const userId1 = Math.min(friendRequest.senderId, userId);
-  const userId2 = Math.max(friendRequest.senderId, userId);
+    await tx.friendRequest.update({
+      where: { id: requestId },
+      data: { status: "accepted" },
+    });
 
-  return prisma.friend.create({
-    data: {
-      userId1,
-      userId2,
-    },
-    include: {
-      user1: {
-        select: { id: true, username: true, email: true, avatar: true },
+    const userId1 = Math.min(friendRequest.senderId, userId);
+    const userId2 = Math.max(friendRequest.senderId, userId);
+
+    return tx.friend.upsert({
+      where: {
+        userId1_userId2: {
+          userId1,
+          userId2,
+        },
       },
-      user2: {
-        select: { id: true, username: true, email: true, avatar: true },
+      update: {},
+      create: {
+        userId1,
+        userId2,
       },
-    },
+      include: {
+        user1: {
+          select: { id: true, username: true, email: true, avatar: true },
+        },
+        user2: {
+          select: { id: true, username: true, email: true, avatar: true },
+        },
+      },
+    });
   });
 };
 
@@ -165,6 +178,10 @@ export const rejectFriendRequest = async (userId, requestId) => {
 
   if (friendRequest.receiverId !== userId) {
     throw createError("無權限操作此請求", 403);
+  }
+
+  if (friendRequest.status !== "pending") {
+    throw createError("此好友請求已被處理", 400);
   }
 
   return prisma.friendRequest.update({
