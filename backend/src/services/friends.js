@@ -57,13 +57,14 @@ export const sendFriendRequest = async (senderId, receiverEmail) => {
       },
       select: { id: true },
     }),
-    prisma.friendRequest.findFirst({
+    prisma.friendRequest.findUnique({
       where: {
-        senderId,
-        receiverId: receiver.id,
-        status: "pending",
+        senderId_receiverId: {
+          senderId,
+          receiverId: receiver.id,
+        },
       },
-      select: { id: true },
+      select: { id: true, status: true },
     }),
   ]);
 
@@ -71,8 +72,20 @@ export const sendFriendRequest = async (senderId, receiverEmail) => {
     throw createError("已經是好友", 400);
   }
 
-  if (existingRequest) {
+  if (existingRequest?.status === "pending") {
     throw createError("好友請求已發送，請勿重複發送", 400);
+  }
+
+  if (existingRequest) {
+    return prisma.friendRequest.update({
+      where: { id: existingRequest.id },
+      data: { status: "pending" },
+      include: {
+        sender: {
+          select: { id: true, username: true, email: true, avatar: true },
+        },
+      },
+    });
   }
 
   return prisma.friendRequest.create({
