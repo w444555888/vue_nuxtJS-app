@@ -9,11 +9,43 @@ import {
   updateUserAvatar,
   getVerifyResult,
   refreshAccessToken,
-  logoutUser,
+  revokeRefreshToken,
 } from "../services/auth.js";
 import { getAuditContextFromRequest, writeAuditLog } from "../services/audit.js";
 
 const router = express.Router();
+
+const REFRESH_COOKIE_NAME = process.env.REFRESH_COOKIE_NAME || "refreshToken";
+const isProduction = process.env.NODE_ENV === "production";
+
+const allowedSameSiteValues = new Set(["lax", "strict", "none"]);
+const rawSameSite = (process.env.REFRESH_COOKIE_SAMESITE || (isProduction ? "none" : "lax")).toLowerCase();
+const cookieSameSite = allowedSameSiteValues.has(rawSameSite) ? rawSameSite : (isProduction ? "none" : "lax");
+const cookieSecure = cookieSameSite === "none" ? true : isProduction;
+
+const getRefreshCookieOptions = () => {
+  const maxAgeDays = Number(process.env.REFRESH_TOKEN_COOKIE_DAYS || 7);
+
+  return {
+    httpOnly: true,
+    secure: cookieSecure,
+    sameSite: cookieSameSite,
+    path: "/api/auth", 
+    maxAge: maxAgeDays * 24 * 60 * 60 * 1000,
+  };
+};
+
+const setRefreshTokenCookie = (res, token) => {
+  res.cookie(REFRESH_COOKIE_NAME, token, getRefreshCookieOptions());
+};
+
+const clearRefreshTokenCookie = (res) => {
+  res.clearCookie(REFRESH_COOKIE_NAME, {
+    ...getRefreshCookieOptions(),
+    maxAge: undefined,
+    expires: new Date(0),
+  });
+};
 
 // 註冊
 router.post("/register", async (req, res) => {
@@ -32,6 +64,8 @@ router.post("/register", async (req, res) => {
   }
   try {
     const result = await registerUser({ email, username, password });
+    setRefreshTokenCookie(res, result.refreshToken);
+    const { refreshToken, ...safePayload } = result;
     const context = getAuditContextFromRequest(req);
     await writeAuditLog({
       action: "AUTH_REGISTER",
@@ -41,7 +75,7 @@ router.post("/register", async (req, res) => {
       metadata: { email: result.user.email, username: result.user.username },
       ...context,
     });
-    return successResponse(res, result, "註冊成功", 201);
+    return successResponse(res, safePayload, "註冊成功", 201);
   } catch (error) {
     logger.error("註冊失敗", { error: error.message, stack: error.stack });
     const context = getAuditContextFromRequest(req);
@@ -74,6 +108,8 @@ router.post("/login", async (req, res) => {
   }
   try {
     const result = await loginUser({ email, password });
+    setRefreshTokenCookie(res, result.refreshToken);
+    const { refreshToken, ...safePayload } = result;
     const context = getAuditContextFromRequest(req);
     await writeAuditLog({
       action: "AUTH_LOGIN",
@@ -83,7 +119,7 @@ router.post("/login", async (req, res) => {
       metadata: { email: result.user.email, username: result.user.username },
       ...context,
     });
-    return successResponse(res, result, "登入成功", 200);
+    return successResponse(res, safePayload, "登入成功", 200);
   } catch (error) {
     logger.error("登入失敗", { error: error.message, stack: error.stack });
     const context = getAuditContextFromRequest(req);
@@ -137,7 +173,7 @@ router.post("/verify", verifyToken, (req, res) => {
 
 // 刷新 Access Token
 router.post("/refresh", async (req, res) => {
-  const { refreshToken } = req.body;
+  const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
   if (!refreshToken) {
     const context = getAuditContextFromRequest(req);
     await writeAuditLog({
@@ -147,10 +183,11 @@ router.post("/refresh", async (req, res) => {
       resource: "auth",
       ...context,
     });
-    return errorResponse(res, "缺少 Refresh Token", 400);
+    return errorResponse(res, "缺少 Refresh Token", 401);
   }
   try {
     const tokens = await refreshAccessToken(refreshToken);
+    setRefreshTokenCookie(res, tokens.refreshToken);
     const context = getAuditContextFromRequest(req);
     await writeAuditLog({
       action: "AUTH_REFRESH",
@@ -159,7 +196,7 @@ router.post("/refresh", async (req, res) => {
       resource: "auth",
       ...context,
     });
-    const { userId, ...tokenPayload } = tokens;
+    const { userId, refreshToken: _, ...tokenPayload } = tokens;
     return successResponse(
       res,
       tokenPayload,
@@ -167,6 +204,7 @@ router.post("/refresh", async (req, res) => {
       200
     );
   } catch (error) {
+    clearRefreshTokenCookie(res);
     logger.error("Token 刷新失敗", { error: error.message, stack: error.stack });
     const context = getAuditContextFromRequest(req);
     await writeAuditLog({
@@ -181,14 +219,20 @@ router.post("/refresh", async (req, res) => {
 });
 
 // 登出
-router.post("/logout", verifyToken, async (req, res) => {
+router.post("/logout", async (req, res) => {
+  const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
+
   try {
-    await logoutUser(req.user.id);
+    if (refreshToken) {
+      await revokeRefreshToken(refreshToken);
+    }
+
+    clearRefreshTokenCookie(res);
     const context = getAuditContextFromRequest(req);
     await writeAuditLog({
       action: "AUTH_LOGOUT",
       result: "SUCCESS",
-      userId: req.user.id,
+      userId: null,
       resource: "auth",
       ...context,
     });
@@ -199,7 +243,7 @@ router.post("/logout", verifyToken, async (req, res) => {
     await writeAuditLog({
       action: "AUTH_LOGOUT",
       result: "FAILURE",
-      userId: req.user?.id || null,
+      userId: null,
       reason: error.message,
       resource: "auth",
       ...context,

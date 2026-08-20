@@ -190,7 +190,23 @@ export const refreshAccessToken = async (refreshTokenFromClient) => {
     userId: user.id,
     accessToken: newAccessToken,
     refreshToken: newRefreshToken,
+    user: {
+      id: user.id,
+      email: user.email,
+      username: user.username,
+      avatar: user.avatar,
+    },
   };
+};
+
+export const revokeRefreshToken = async (refreshToken) => {
+  if (!refreshToken) {
+    return;
+  }
+
+  await prisma.refreshToken.deleteMany({
+    where: { token: refreshToken },
+  });
 };
 
 // 登出 - 刪除 refresh token

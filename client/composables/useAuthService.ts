@@ -3,6 +3,27 @@ export const useAuthService = () => {
   const authStore = useAuthStore()
   const router = useRouter()
 
+  // 刷新 Access Token（Refresh Token 由 HttpOnly Cookie 自動帶上）
+  const refreshSession = async () => {
+    try {
+      const result = await post('/api/auth/refresh', {})
+
+      if (result.success && result.data?.accessToken) {
+        return { success: true, data: result.data, message: result.message }
+      }
+
+      return {
+        success: false,
+        message: result.message || result.error || 'Token 刷新失敗'
+      }
+    } catch (error: any) {
+      return {
+        success: false,
+        message: error.message || error.error || 'Token 刷新失敗'
+      }
+    }
+  }
+
   // 註冊
   const register = async (email: string, username: string, password: string) => {
     try {
@@ -14,7 +35,7 @@ export const useAuthService = () => {
       })
 
       if (result.success) {
-        authStore.setAuth(result.data.user, result.data.accessToken, result.data.refreshToken)
+        authStore.setAuth(result.data.user, result.data.accessToken)
         return { success: true, data: result.data, message: result.message }
       } else {
         return { success: false, message: result.message || result.error || '註冊失敗，請重試' }
@@ -40,7 +61,7 @@ export const useAuthService = () => {
       })
 
       if (result.success) {
-        authStore.setAuth(result.data.user, result.data.accessToken, result.data.refreshToken)
+        authStore.setAuth(result.data.user, result.data.accessToken)
         return { success: true, data: result.data, message: result.message }
       } else {
         return { success: false, message: result.message || result.error || '登入失敗，請检查郵箱和密碼' }
@@ -74,5 +95,5 @@ export const useAuthService = () => {
     }
   }
 
-  return { register, login, logout }
+  return { register, login, logout, refreshSession }
 }

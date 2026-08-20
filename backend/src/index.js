@@ -2,6 +2,7 @@ import "dotenv/config";
 import express from "express";
 import cors from "cors";
 import http from "http";
+import cookieParser from "cookie-parser";
 import { Server as SocketIO } from "socket.io";
 import jwt from "jsonwebtoken";
 import morgan from "morgan";
@@ -16,11 +17,17 @@ import aiRoutes from "./routes/ai.js";
 
 const app = express();
 const server = http.createServer(app);
+const corsOrigin = process.env.CORS_ORIGIN || "http://localhost:3000";
+
+const normalizedOrigins = corsOrigin.split(",").map((origin) => origin.trim()).filter(Boolean);
+const corsOriginValue = normalizedOrigins.length === 1 ? normalizedOrigins[0] : normalizedOrigins;
+
 // Socket.IO 與 HTTP 共用同一個 server，會自動從 polling 升級到 WebSocket。
 const io = new SocketIO(server, {
   cors: {
-    origin: process.env.CORS_ORIGIN || "http://localhost:3000",
+    origin: corsOriginValue,
     methods: ["GET", "POST"],
+    credentials: true,
   },
   // 連線狀態恢復2分鐘，若斷線超過2分鐘則視為新連線，無法恢復斷線期間的事件。
   connectionStateRecovery: {
@@ -55,7 +62,11 @@ app.use(morgan(':remote-addr - :remote-user [:date[clf]] ":method :url HTTP/:htt
 app.use(performanceMiddleware);
 
 app.use(express.json());
-app.use(cors());
+app.use(cookieParser());
+app.use(cors({
+  origin: corsOriginValue,
+  credentials: true,
+}));
 
 app.use("/api/auth", authRoutes);
 app.use("/api/chat", chatRoutes);

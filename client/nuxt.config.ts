@@ -20,6 +20,9 @@ export default defineNuxtConfig({
     '@pinia/nuxt',
     'nuxt-security'
   ],
+  ui: {
+    fonts: false
+  },
   security: {
     strict: false,
     nonce: true,  // CSP nonce 一次性隨機碼，每次 Nuxt 渲染時都產生新的

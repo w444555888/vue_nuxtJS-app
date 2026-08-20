@@ -49,6 +49,7 @@ const createHttpClient = (): AxiosInstance => {
 
   const instance = axios.create({
     baseURL: apiBase,
+    withCredentials: true,
     headers: {
       'Content-Type': 'application/json'
     }
@@ -110,19 +111,20 @@ const createHttpClient = (): AxiosInstance => {
         originalRequest._retry = true
         isRefreshing = true
 
-        // 發送刷新 token 請求
+        // 發送刷新 token 請求（refresh token 走 HttpOnly cookie）
         return new Promise((resolve, reject) => {
-          instance.post('/api/auth/refresh', {
-            refreshToken: authStore.refreshToken
-          })
+          instance.post('/api/auth/refresh')
             .then(response => {
               const { data } = response
               if (data && data.data) {
-                const { accessToken, refreshToken } = data.data
+                const { accessToken, user } = data.data
                 
                 // 更新 store 中的 token
                 authStore.updateAccessToken(accessToken)
-                authStore.updateRefreshToken(refreshToken)
+
+                if (user) {
+                  authStore.setUser(user)
+                }
                 
                 // 用新 token 重試原請求
                 originalRequest.headers.Authorization = `Bearer ${accessToken}`
