@@ -49,6 +49,16 @@
               <span class="message-time">{{ formatTime(msg.createdAt) }}</span>
             </div>
             <div class="message-text">
+              <div v-if="msg.replyPreview" class="reply-preview">
+                <span class="reply-author">回覆 {{ msg.replyPreview.senderName }}</span>
+                <img
+                  v-if="msg.replyPreview.imageUrl"
+                  :src="toImageSrc(msg.replyPreview.imageUrl)"
+                  alt="reply image"
+                  class="reply-media-thumb"
+                />
+                <span v-if="msg.replyPreview.content" class="reply-content">{{ truncateReplyContent(msg.replyPreview.content) }}</span>
+              </div>
               <video
                 v-if="msg.imageUrl && isVideoUrl(msg.imageUrl)"
                 :src="toImageSrc(msg.imageUrl)"
@@ -66,8 +76,9 @@
 
     <!-- 右鍵菜單 -->
     <div v-if="contextMenu.show" class="context-menu" :style="{ top: contextMenu.y + 'px', left: contextMenu.x + 'px' }">
-      <div class="context-item" @click="openEditModal">編輯</div>
-      <div class="context-item danger" @click="deleteMessage">刪除</div>
+      <div class="context-item" @click="startReply">回覆</div>
+      <div v-if="contextMenu.message?.userId === props.currentUserId" class="context-item" @click="openEditModal">編輯</div>
+      <div v-if="contextMenu.message?.userId === props.currentUserId" class="context-item danger" @click="deleteMessage">刪除</div>
     </div>
 
     <!-- 編輯消息模態框 -->
@@ -116,6 +127,19 @@
         <button @click="showMembersModal = false" class="btn-secondary">關閉</button>
       </template>
     </Modal>
+
+    <div v-if="replyTarget" class="reply-target-bar">
+      <div class="reply-target-text">
+        回覆 {{ replyTarget.username }}：{{ truncateReplyContent(replyTarget.content)}}
+      </div>
+      <img
+        v-if="replyTarget.imageUrl"
+        :src="toImageSrc(replyTarget.imageUrl)"
+        alt="reply target image"
+        class="reply-target-thumb"
+      />
+      <button type="button" class="reply-cancel-btn" @click="cancelReply">取消</button>
+    </div>
 
     <!-- 輸入框區域 -->
     <div class="chat-input-area">
@@ -183,6 +207,14 @@ interface Message {
   roomId?: number
   content: string
   imageUrl?: string
+  replyToMessageId?: number | null
+  replyPreview?: {
+    id: number
+    content: string
+    imageUrl?: string | null
+    senderId?: number
+    senderName: string
+  } | null
   userId: number
   username: string
   avatar: string
@@ -249,6 +281,7 @@ const showMembersModal = ref(false)
 const previewMedia = ref<string | null>(null)
 const previewType = ref<'image' | 'video' | null>(null)
 const selectedFile = ref<File | null>(null)
+const replyTarget = ref<Message | null>(null)
 const contextMenu = ref({
   show: false,
   x: 0,
@@ -314,6 +347,8 @@ const applyCreatedMessage = (data: any) => {
     roomId: Number(data?.roomId || props.room.id),
     content: data.content,
     imageUrl: data.imageUrl,
+    replyToMessageId: data.replyToMessageId || null,
+    replyPreview: data.replyPreview || null,
     userId: data.userId,
     username: data.username,
     avatar: data.avatar,
@@ -349,6 +384,18 @@ const applyDeletedMessage = (data: any) => {
   const messageId = Number(data?.id)
   messages.value = messages.value.filter((item) => item.id !== messageId)
   messageIdSet.value.delete(messageId)
+
+  if (replyTarget.value?.id === messageId) {
+    replyTarget.value = null
+  }
+}
+
+const truncateReplyContent = (content?: string | null) => {
+  if (!content) {
+    return ''
+  }
+
+  return content.length > 42 ? `${content.slice(0, 42)}...` : content
 }
 
 const joinRoomWithRecovery = (useLastSeq: boolean = true) => {
@@ -492,19 +539,22 @@ const handleSendMessage = async () => {
       authStore.user.id, 
       props.room.id, 
       content,
-      imageUrl
+      imageUrl,
+      replyTarget.value?.id ?? null
     )
+
     if (!result?.success) {
       message.error(result?.message || '發送失敗')
       return
     }
 
     inputMessage.value = '' // 清空輸入框
+    replyTarget.value = null
     clearImagePreview() // 清空媒體預覽
     emit('messageSent')
   } catch (error) {
     console.error('發送消息失敗:', error)
-    message.error('發送失敗')
+    message.error((error as Error)?.message || '發送失敗')
   } finally {
     isSending.value = false
     isUploading.value = false
@@ -526,8 +576,6 @@ const formatTime = (timestamp: string) => {
 
 // 顯示右鍵菜單
 const showContextMenu = (event: MouseEvent, msg: Message) => {
-  if (msg.userId !== props.currentUserId) return // 只能編輯自己的消息
-  
   contextMenu.value = {
     show: true,
     x: event.clientX,
@@ -541,6 +589,19 @@ const showContextMenu = (event: MouseEvent, msg: Message) => {
   }, 0)
 }
 
+const startReply = () => {
+  if (!contextMenu.value.message) {
+    return
+  }
+
+  replyTarget.value = contextMenu.value.message
+  hideContextMenu()
+}
+
+const cancelReply = () => {
+  replyTarget.value = null
+}
+
 // 隱藏右鍵菜單
 const hideContextMenu = () => {
   contextMenu.value.show = false
@@ -550,6 +611,10 @@ const hideContextMenu = () => {
 // 打開編輯模態框
 const openEditModal = () => {
   if (!contextMenu.value.message) return
+  if (contextMenu.value.message.userId !== props.currentUserId) {
+    hideContextMenu()
+    return
+  }
   editingMessage.value = contextMenu.value.message
   editingContent.value = contextMenu.value.message.content
   showEditModal.value = true
@@ -587,6 +652,10 @@ const submitEdit = async () => {
 // 刪除消息
 const deleteMessage = async () => {
   if (!contextMenu.value.message) return
+  if (contextMenu.value.message.userId !== props.currentUserId) {
+    hideContextMenu()
+    return
+  }
   
   try {
     const result = await socketDeleteMessage(
@@ -699,6 +768,7 @@ watch(() => props.room.id, async (newRoomId, oldRoomId) => {
   }
 
   joinedRoomId.value = null
+  replyTarget.value = null
   messageIdSet.value = new Set()
   messages.value = []
   await loadMessages()
@@ -940,6 +1010,71 @@ watch(() => props.room.id, async (newRoomId, oldRoomId) => {
   font-size: 14px;
   color: #333;
   line-height: 1.5;
+}
+
+.reply-preview {
+  border-left: 3px solid #8b95d6;
+  background: rgba(139, 149, 214, 0.14);
+  border-radius: 6px;
+  padding: 6px 8px;
+  margin-bottom: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.reply-author {
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.reply-content {
+  font-size: 12px;
+  opacity: 0.9;
+}
+
+.reply-media-thumb {
+  width: 64px;
+  height: 64px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid rgba(139, 149, 214, 0.35);
+}
+
+.reply-target-bar {
+  border-top: 1px solid #e8e8e8;
+  border-bottom: 1px solid #e8e8e8;
+  padding: 10px 24px;
+  background: #f7f8fc;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.reply-target-text {
+  font-size: 13px;
+  color: #495057;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.reply-cancel-btn {
+  border: none;
+  background: transparent;
+  color: #667eea;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 600;
+}
+
+.reply-target-thumb {
+  width: 40px;
+  height: 40px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid #d9d9d9;
 }
 
 /* 聊天輸入框區域 */

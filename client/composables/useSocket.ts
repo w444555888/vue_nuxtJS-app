@@ -51,8 +51,44 @@ const emitWithAck = <T = any>(event: string, payload: any, timeoutMs = DEFAULT_A
       return
     }
 
-    // 交給 Socket.IO 的 timeout + retries 機制處理，避免雙重計時器造成判斷衝突。
+    let settled = false
+
+    const cleanup = () => {
+      clearTimeout(fallbackTimer)
+      socket.off('disconnect', onDisconnect)
+    }
+
+    const onDisconnect = (reason: string) => {
+      if (settled) {
+        return
+      }
+
+      settled = true
+      cleanup()
+      reject(new Error(`${event} 傳送期間連線中斷`))
+    }
+
+    const fallbackTimer = setTimeout(() => {
+      if (settled) {
+        return
+      }
+
+      settled = true
+      cleanup()
+      reject(new Error(`${event} 客戶端逾時`))
+    }, timeoutMs + 1000)
+
+    socket.on('disconnect', onDisconnect)
+
+    // 以 Socket.IO 的 timeout + retries 為主，另加本地保底 timeout 防止 Promise 懸掛。
     socket.timeout(timeoutMs).emit(event, payload, (error: Error | null, response: T) => {
+      if (settled) {
+        return
+      }
+
+      settled = true
+      cleanup()
+
       if (error) {
         reject(new Error(`${event} ACK 超時或重試失敗`))
         return
@@ -227,8 +263,20 @@ export const useSocket = () => {
   }
 
   // 發送消息（ACK）
-  const sendMessage = async (userId: number, roomId: number, content: string, imageUrl?: string) => {
-    return emitWithAck<{ success: boolean; message?: string; event?: any }>('send_message', { userId, roomId, content, imageUrl })
+  const sendMessage = async (
+    userId: number,
+    roomId: number,
+    content: string,
+    imageUrl?: string,
+    replyToMessageId?: number | null
+  ) => {
+    return emitWithAck<{ success: boolean; message?: string; event?: any }>('send_message', {
+      userId,
+      roomId,
+      content,
+      imageUrl,
+      replyToMessageId
+    })
   }
 
   // 編輯消息（ACK）
@@ -378,8 +426,20 @@ export const useSocket = () => {
   }
 
   // 發送私聊消息（ACK）
-  const sendPrivateMessage = async (userId: number, friendId: number, content: string, imageUrl?: string) => {
-    return emitWithAck<{ success: boolean; message?: string; event?: any }>('send_private_message', { userId, friendId, content, imageUrl })
+  const sendPrivateMessage = async (
+    userId: number,
+    friendId: number,
+    content: string,
+    imageUrl?: string,
+    replyToMessageId?: number | null
+  ) => {
+    return emitWithAck<{ success: boolean; message?: string; event?: any }>('send_private_message', {
+      userId,
+      friendId,
+      content,
+      imageUrl,
+      replyToMessageId
+    })
   }
 
   // 編輯私聊消息（ACK）

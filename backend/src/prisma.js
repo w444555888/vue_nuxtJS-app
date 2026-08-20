@@ -15,8 +15,8 @@ const pool = new pg.Pool({ connectionString });
 const adapter = new PrismaPg(pool);
 const prisma = new PrismaClient({ 
   adapter,
-  // 可選：在開發環境顯示查詢日誌
-  log: process.env.NODE_ENV === 'development' ? ['query', 'error', 'warn'] : ['error'],
+  // 可選：在開發環境顯示查詢日誌  'query'只在需要時再開 query log（例如短時間除錯）
+  log: process.env.NODE_ENV === 'development' ? ['error', 'warn'] : ['error'],
 });
 
 // 處理連接錯誤

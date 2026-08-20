@@ -22,6 +22,34 @@ const buildPrivateConversationId = (userIdA, userIdB) => {
   return `private_${Math.min(userIdA, userIdB)}_${Math.max(userIdA, userIdB)}`;
 };
 
+const buildRoomReplyPreview = (replyMessage) => {
+  if (!replyMessage) {
+    return null;
+  }
+
+  return {
+    id: replyMessage.id,
+    content: replyMessage.content || "",
+    imageUrl: replyMessage.imageUrl || null,
+    senderId: replyMessage.user?.id,
+    senderName: replyMessage.user?.username || "未知使用者",
+  };
+};
+
+const buildPrivateReplyPreview = (replyMessage) => {
+  if (!replyMessage) {
+    return null;
+  }
+
+  return {
+    id: replyMessage.id,
+    content: replyMessage.content || "",
+    imageUrl: replyMessage.imageUrl || null,
+    senderId: replyMessage.sender?.id,
+    senderName: replyMessage.sender?.username || "未知使用者",
+  };
+};
+
 const formatRoomMessageEvent = (message) => ({
   id: message.id,
   seq: message.id,
@@ -31,6 +59,8 @@ const formatRoomMessageEvent = (message) => ({
   userId: message.user.id,
   username: message.user.username,
   avatar: message.user.avatar,
+  replyToMessageId: message.replyToMessageId || null,
+  replyPreview: buildRoomReplyPreview(message.replyToMessage),
   createdAt: message.createdAt,
   eventType: "message_created",
 });
@@ -44,6 +74,8 @@ const formatPrivateMessageEvent = (message) => ({
   senderName: message.sender.username,
   senderAvatar: message.sender.avatar,
   receiverId: message.receiver.id,
+  replyToMessageId: message.replyToMessageId || null,
+  replyPreview: buildPrivateReplyPreview(message.replyToMessage),
   isRead: message.isRead,
   createdAt: message.createdAt,
   eventType: "private_message_created",
@@ -131,6 +163,16 @@ export default (io) => {
             user: {
               select: { id: true, username: true, avatar: true },
             },
+            replyToMessage: {
+              select: {
+                id: true,
+                content: true,
+                imageUrl: true,
+                user: {
+                  select: { id: true, username: true },
+                },
+              },
+            },
           },
           orderBy: { id: "asc" },
         });
@@ -161,7 +203,7 @@ export default (io) => {
 
     // 接收消息
     socket.on("send_message", async (data, ack) => {
-      const { roomId, content, imageUrl } = data || {};
+      const { roomId, content, imageUrl, replyToMessageId } = data || {};
 
       if ((!content || !String(content).trim()) && !imageUrl) {
         if (ack) {
@@ -173,6 +215,15 @@ export default (io) => {
       }
 
       try {
+        let parsedReplyToMessageId = null;
+        if (replyToMessageId !== undefined && replyToMessageId !== null && replyToMessageId !== "") {
+          parsedReplyToMessageId = Number(replyToMessageId);
+          if (!Number.isInteger(parsedReplyToMessageId) || parsedReplyToMessageId <= 0) {
+            ack?.({ success: false, message: "回覆目標無效" });
+            return;
+          }
+        }
+
         const member = await prisma.chatRoomMember.findUnique({
           where: {
             userId_roomId: {
@@ -191,6 +242,18 @@ export default (io) => {
           return;
         }
 
+        if (parsedReplyToMessageId) {
+          const repliedMessage = await prisma.message.findUnique({
+            where: { id: parsedReplyToMessageId },
+            select: { id: true, roomId: true },
+          });
+
+          if (!repliedMessage || repliedMessage.roomId !== roomId) {
+            ack?.({ success: false, message: "被回覆消息不存在或不在此聊天室" });
+            return;
+          }
+        }
+
         // 保存到資料庫
         const message = await prisma.message.create({
           data: {
@@ -198,10 +261,21 @@ export default (io) => {
             imageUrl: imageUrl || null,
             userId: authenticatedUserId,
             roomId,
+            replyToMessageId: parsedReplyToMessageId,
           },
           include: {
             user: {
               select: { id: true, username: true, avatar: true },
+            },
+            replyToMessage: {
+              select: {
+                id: true,
+                content: true,
+                imageUrl: true,
+                user: {
+                  select: { id: true, username: true },
+                },
+              },
             },
           },
         });
@@ -365,6 +439,16 @@ export default (io) => {
             receiver: {
               select: { id: true, username: true, avatar: true },
             },
+            replyToMessage: {
+              select: {
+                id: true,
+                content: true,
+                imageUrl: true,
+                sender: {
+                  select: { id: true, username: true },
+                },
+              },
+            },
           },
           orderBy: { id: "asc" },
         });
@@ -389,7 +473,7 @@ export default (io) => {
 
     // 發送私聊消息
     socket.on("send_private_message", async (data, ack) => {
-      const { friendId, content, imageUrl } = data || {};
+      const { friendId, content, imageUrl, replyToMessageId } = data || {};
 
       if ((!content || !String(content).trim()) && !imageUrl) {
         if (ack) {
@@ -401,6 +485,15 @@ export default (io) => {
       }
 
       try {
+        let parsedReplyToMessageId = null;
+        if (replyToMessageId !== undefined && replyToMessageId !== null && replyToMessageId !== "") {
+          parsedReplyToMessageId = Number(replyToMessageId);
+          if (!Number.isInteger(parsedReplyToMessageId) || parsedReplyToMessageId <= 0) {
+            ack?.({ success: false, message: "回覆目標無效" });
+            return;
+          }
+        }
+
         // 驗證好友關係
         const friendIdNum = Number(friendId);
         const isFriend = await prisma.friend.findFirst({
@@ -421,6 +514,23 @@ export default (io) => {
           return;
         }
 
+        if (parsedReplyToMessageId) {
+          const repliedMessage = await prisma.privateMessage.findUnique({
+            where: { id: parsedReplyToMessageId },
+            select: { id: true, senderId: true, receiverId: true },
+          });
+
+          const isSameConversation = repliedMessage && (
+            (repliedMessage.senderId === authenticatedUserId && repliedMessage.receiverId === friendIdNum) ||
+            (repliedMessage.senderId === friendIdNum && repliedMessage.receiverId === authenticatedUserId)
+          );
+
+          if (!isSameConversation) {
+            ack?.({ success: false, message: "被回覆消息不屬於此對話" });
+            return;
+          }
+        }
+
         // 保存到資料庫
         const message = await prisma.privateMessage.create({
           data: {
@@ -429,6 +539,7 @@ export default (io) => {
             senderId: authenticatedUserId,
             receiverId: friendId,
             isRead: false,
+            replyToMessageId: parsedReplyToMessageId,
           },
           include: {
             sender: {
@@ -436,6 +547,16 @@ export default (io) => {
             },
             receiver: {
               select: { id: true, username: true, avatar: true },
+            },
+            replyToMessage: {
+              select: {
+                id: true,
+                content: true,
+                imageUrl: true,
+                sender: {
+                  select: { id: true, username: true },
+                },
+              },
             },
           },
         });
@@ -462,7 +583,7 @@ export default (io) => {
               senderId: authenticatedUserId,
               senderName: message.sender.username,
               senderAvatar: message.sender.avatar,
-              content: content ? String(content).substring(0, 50) : "[圖片]", // 預覽
+              content: content ? String(content).substring(0, 50) : "", // 預覽
               messageId: message.id,
             });
           }

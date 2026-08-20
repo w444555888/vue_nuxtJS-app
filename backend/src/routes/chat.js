@@ -27,6 +27,34 @@ import {
 
 const router = express.Router();
 
+const buildReplyPreviewForRoom = (replyMessage) => {
+  if (!replyMessage) {
+    return null;
+  }
+
+  return {
+    id: replyMessage.id,
+    content: replyMessage.content || "",
+    imageUrl: replyMessage.imageUrl || null,
+    senderId: replyMessage.user?.id,
+    senderName: replyMessage.user?.username || "未知使用者",
+  };
+};
+
+const buildReplyPreviewForPrivate = (replyMessage) => {
+  if (!replyMessage) {
+    return null;
+  }
+
+  return {
+    id: replyMessage.id,
+    content: replyMessage.content || "",
+    imageUrl: replyMessage.imageUrl || null,
+    senderId: replyMessage.sender?.id,
+    senderName: replyMessage.sender?.username || "未知使用者",
+  };
+};
+
 router.get("/rooms", verifyToken, async (req, res) => {
   try {
     const rooms = await getUserRooms(req.user.id);
@@ -206,8 +234,8 @@ router.post("/rooms/invites/:inviteId/reject", verifyToken, async (req, res) => 
 router.post("/rooms/:roomId/messages", verifyToken, async (req, res) => {
   try {
     const roomId = parseInt(req.params.roomId, 10);
-    const { content, imageUrl } = req.body;
-    const message = await sendRoomMessage(req.user.id, roomId, content, imageUrl);
+    const { content, imageUrl, replyToMessageId } = req.body;
+    const message = await sendRoomMessage(req.user.id, roomId, content, imageUrl, replyToMessageId);
 
     const io = req.app.get("io");
     io.to(`room_${roomId}`).emit("receive_message", {
@@ -219,6 +247,8 @@ router.post("/rooms/:roomId/messages", verifyToken, async (req, res) => {
       userId: message.user.id,
       username: message.user.username,
       avatar: message.user.avatar,
+      replyToMessageId: message.replyToMessageId,
+      replyPreview: buildReplyPreviewForRoom(message.replyToMessage),
       createdAt: message.createdAt,
       eventType: "message_created",
     });
@@ -314,8 +344,8 @@ router.get("/private/:friendId", verifyToken, async (req, res) => {
 router.post("/private/:friendId/messages", verifyToken, async (req, res) => {
   try {
     const friendId = parseInt(req.params.friendId, 10);
-    const { content, imageUrl } = req.body;
-    const message = await sendPrivateMessage(req.user.id, friendId, content, imageUrl);
+    const { content, imageUrl, replyToMessageId } = req.body;
+    const message = await sendPrivateMessage(req.user.id, friendId, content, imageUrl, replyToMessageId);
 
     const io = req.app.get("io");
     const conversationId = `private_${Math.min(req.user.id, friendId)}_${Math.max(req.user.id, friendId)}`;
@@ -329,6 +359,8 @@ router.post("/private/:friendId/messages", verifyToken, async (req, res) => {
       senderName: message.sender.username,
       senderAvatar: message.sender.avatar,
       receiverId: message.receiver.id,
+      replyToMessageId: message.replyToMessageId,
+      replyPreview: buildReplyPreviewForPrivate(message.replyToMessage),
       isRead: message.isRead,
       createdAt: message.createdAt,
       eventType: "private_message_created",

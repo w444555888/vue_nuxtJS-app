@@ -7,6 +7,19 @@ const createError = (message, status = 400) => {
   return error;
 };
 
+const parseReplyMessageId = (replyToMessageId) => {
+  if (replyToMessageId === undefined || replyToMessageId === null || replyToMessageId === "") {
+    return null;
+  }
+
+  const parsed = Number(replyToMessageId);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throw createError("回覆目標無效", 400);
+  }
+
+  return parsed;
+};
+
 export const getUserRooms = async (userId) => {
   const rooms = await prisma.chatRoom.findMany({
     where: {
@@ -406,10 +419,12 @@ export const rejectRoomInvite = async (userId, inviteId) => {
   });
 };
 
-export const sendRoomMessage = async (userId, roomId, content, imageUrl) => {
+export const sendRoomMessage = async (userId, roomId, content, imageUrl, replyToMessageId) => {
   if ((!content || !content.trim()) && !imageUrl) {
     throw createError("消息內容和圖片不能同時為空", 400);
   }
+
+  const parsedReplyToMessageId = parseReplyMessageId(replyToMessageId);
 
   const member = await prisma.chatRoomMember.findUnique({
     where: {
@@ -424,16 +439,38 @@ export const sendRoomMessage = async (userId, roomId, content, imageUrl) => {
     throw createError("你不是此聊天室的成員", 403);
   }
 
+  if (parsedReplyToMessageId) {
+    const repliedMessage = await prisma.message.findUnique({
+      where: { id: parsedReplyToMessageId },
+      select: { id: true, roomId: true },
+    });
+
+    if (!repliedMessage || repliedMessage.roomId !== roomId) {
+      throw createError("被回覆消息不存在或不在此聊天室", 400);
+    }
+  }
+
   return prisma.message.create({
     data: {
       content: content ? content.trim() : "",
       imageUrl: imageUrl || null,
       userId,
       roomId,
+      replyToMessageId: parsedReplyToMessageId,
     },
     include: {
       user: {
         select: { id: true, username: true, avatar: true },
+      },
+      replyToMessage: {
+        select: {
+          id: true,
+          content: true,
+          imageUrl: true,
+          user: {
+            select: { id: true, username: true },
+          },
+        },
       },
     },
   });
@@ -445,6 +482,16 @@ export const getRoomMessages = async (roomId) => {
     include: {
       user: {
         select: { id: true, username: true, avatar: true },
+      },
+      replyToMessage: {
+        select: {
+          id: true,
+          content: true,
+          imageUrl: true,
+          user: {
+            select: { id: true, username: true },
+          },
+        },
       },
     },
     orderBy: { createdAt: "asc" },
@@ -583,6 +630,16 @@ export const getPrivateMessages = async (userId, friendId) => {
       receiver: {
         select: { id: true, username: true, avatar: true },
       },
+      replyToMessage: {
+        select: {
+          id: true,
+          content: true,
+          imageUrl: true,
+          sender: {
+            select: { id: true, username: true },
+          },
+        },
+      },
     },
     orderBy: { createdAt: "asc" },
     take: 100,
@@ -600,10 +657,12 @@ export const getPrivateMessages = async (userId, friendId) => {
   return { friend, messages };
 };
 
-export const sendPrivateMessage = async (userId, friendId, content, imageUrl) => {
+export const sendPrivateMessage = async (userId, friendId, content, imageUrl, replyToMessageId) => {
   if ((!content || !content.trim()) && !imageUrl) {
     throw createError("消息內容和圖片不能同時為空", 400);
   }
+
+  const parsedReplyToMessageId = parseReplyMessageId(replyToMessageId);
 
   const isFriend = await prisma.friend.findFirst({
     where: {
@@ -618,6 +677,25 @@ export const sendPrivateMessage = async (userId, friendId, content, imageUrl) =>
     throw createError("該用戶不是你的好友", 403);
   }
 
+  if (parsedReplyToMessageId) {
+    const repliedMessage = await prisma.privateMessage.findUnique({
+      where: { id: parsedReplyToMessageId },
+      select: { id: true, senderId: true, receiverId: true },
+    });
+
+    if (!repliedMessage) {
+      throw createError("被回覆消息不存在", 400);
+    }
+
+    const isSameConversation =
+      (repliedMessage.senderId === userId && repliedMessage.receiverId === friendId) ||
+      (repliedMessage.senderId === friendId && repliedMessage.receiverId === userId);
+
+    if (!isSameConversation) {
+      throw createError("被回覆消息不屬於此對話", 400);
+    }
+  }
+
   return prisma.privateMessage.create({
     data: {
       content: content ? content.trim() : "",
@@ -625,6 +703,7 @@ export const sendPrivateMessage = async (userId, friendId, content, imageUrl) =>
       senderId: userId,
       receiverId: friendId,
       isRead: false,
+      replyToMessageId: parsedReplyToMessageId,
     },
     include: {
       sender: {
@@ -632,6 +711,16 @@ export const sendPrivateMessage = async (userId, friendId, content, imageUrl) =>
       },
       receiver: {
         select: { id: true, username: true, avatar: true },
+      },
+      replyToMessage: {
+        select: {
+          id: true,
+          content: true,
+          imageUrl: true,
+          sender: {
+            select: { id: true, username: true },
+          },
+        },
       },
     },
   });

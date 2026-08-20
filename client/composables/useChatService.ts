@@ -137,6 +137,16 @@ export const useChatService = () => {
         userId: msg.user.id,
         username: msg.user.username,
         avatar: msg.user.avatar,
+        replyToMessageId: msg.replyToMessageId || null,
+        replyPreview: msg.replyToMessage
+          ? {
+              id: msg.replyToMessage.id,
+              content: msg.replyToMessage.content || '',
+              imageUrl: resolveImageUrl(msg.replyToMessage.imageUrl),
+              senderId: msg.replyToMessage.user?.id,
+              senderName: msg.replyToMessage.user?.username || '未知使用者'
+            }
+          : null,
         roomId: msg.roomId,
         timestamp: msg.createdAt,
         createdAt: msg.createdAt
@@ -223,6 +233,16 @@ export const useChatService = () => {
         senderName: msg.sender.username,
         senderAvatar: msg.sender.avatar,
         receiverId: msg.receiver.id,
+        replyToMessageId: msg.replyToMessageId || null,
+        replyPreview: msg.replyToMessage
+          ? {
+              id: msg.replyToMessage.id,
+              content: msg.replyToMessage.content || '',
+              imageUrl: resolveImageUrl(msg.replyToMessage.imageUrl),
+              senderId: msg.replyToMessage.sender?.id,
+              senderName: msg.replyToMessage.sender?.username || '未知使用者'
+            }
+          : null,
         isRead: msg.isRead,
         createdAt: msg.createdAt,
         timestamp: msg.createdAt

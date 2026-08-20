@@ -84,14 +84,19 @@ model Message {
   id        Int      @id @default(autoincrement())
   content   String
   imageUrl  String?  // 圖片URL
+  replyToMessageId Int?
 
   userId    Int
   roomId    Int
 
   user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
   room      ChatRoom @relation(fields: [roomId], references: [id], onDelete: Cascade)
+  replyToMessage Message? @relation("MessageReplies", fields: [replyToMessageId], references: [id], onDelete: SetNull)
+  replies   Message[] @relation("MessageReplies")
 
   createdAt DateTime @default(now())
+
+  @@index([replyToMessageId])
 }
 
 // 好友請求模型
@@ -133,16 +138,21 @@ model PrivateMessage {
   id          Int      @id @default(autoincrement()) // 自動編號
   content     String
   imageUrl    String?  // 圖片URL
+  replyToMessageId Int?
   
   senderId    Int
   receiverId  Int
   
   sender      User @relation("sender", fields: [senderId], references: [id], onDelete: Cascade)
   receiver    User @relation("receiver", fields: [receiverId], references: [id], onDelete: Cascade)
+  replyToMessage PrivateMessage? @relation("PrivateMessageReplies", fields: [replyToMessageId], references: [id], onDelete: SetNull)
+  replies      PrivateMessage[] @relation("PrivateMessageReplies")
   
   isRead      Boolean  @default(false)
   
   createdAt   DateTime @default(now())
+
+  @@index([replyToMessageId])
 }
 
 // Refresh Token 模型
