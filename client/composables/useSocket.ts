@@ -68,6 +68,9 @@ const emitWithAck = <T = any>(event: string, payload: any, timeoutMs = DEFAULT_A
       reject(new Error(`${event} 傳送期間連線中斷`))
     }
 
+    const maxAckAttempts = DEFAULT_EMIT_RETRIES + 1
+    const fallbackTimeoutMs = timeoutMs * maxAckAttempts + 1000
+
     const fallbackTimer = setTimeout(() => {
       if (settled) {
         return
@@ -76,11 +79,11 @@ const emitWithAck = <T = any>(event: string, payload: any, timeoutMs = DEFAULT_A
       settled = true
       cleanup()
       reject(new Error(`${event} 客戶端逾時`))
-    }, timeoutMs + 1000)
+    }, fallbackTimeoutMs)
 
     socket.on('disconnect', onDisconnect)
 
-    // 以 Socket.IO 的 timeout + retries 為主，另加本地保底 timeout 防止 Promise 懸掛。
+    // 以 Socket.IO 的 timeout + retries 為主，本地超時僅作為最終保底，時間覆蓋完整重試週期。
     socket.timeout(timeoutMs).emit(event, payload, (error: Error | null, response: T) => {
       if (settled) {
         return
