@@ -84,7 +84,7 @@ model Message {
   id        Int      @id @default(autoincrement())
   content   String
   imageUrl  String?  // 圖片URL
-  replyToMessageId Int?
+  replyToMessageId Int? // 這則訊息要回覆哪一則訊息（用被回覆訊息的 id）
 
   userId    Int
   roomId    Int
