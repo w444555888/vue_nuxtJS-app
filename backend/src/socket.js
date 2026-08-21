@@ -219,7 +219,7 @@ export default (io) => {
         if (replyToMessageId !== undefined && replyToMessageId !== null && replyToMessageId !== "") {
           parsedReplyToMessageId = Number(replyToMessageId);
           if (!Number.isInteger(parsedReplyToMessageId) || parsedReplyToMessageId <= 0) {
-            ack?.({ success: false, message: "回覆目標無效" });
+            ack?.({ success: false, message: "回覆目標無效 ws parsedReplyToMessageId" });
             return;
           }
         }

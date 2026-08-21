@@ -14,7 +14,7 @@ const parseReplyMessageId = (replyToMessageId) => {
 
   const parsed = Number(replyToMessageId);
   if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw createError("回覆目標無效", 400);
+    throw createError("回覆目標無效parseReplyMessageId", 400);
   }
 
   return parsed;
