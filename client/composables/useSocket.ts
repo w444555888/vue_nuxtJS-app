@@ -452,11 +452,6 @@ export const useSocket = () => {
     return emitWithAck<{ success: boolean; message?: string; event?: any }>('delete_private_message', { userId, friendId, messageId })
   }
 
-  // 標記私聊為已讀（ACK）
-  const markPrivateAsRead = async (userId: number, friendId: number) => {
-    return emitWithAck<{ success: boolean; message?: string }>('mark_private_as_read', { userId, friendId })
-  }
-
   // 監聽接收私聊消息
   const onReceivePrivateMessage = (callback: (data: any) => void) => {
     if (socketRef.value) {
@@ -610,7 +605,6 @@ export const useSocket = () => {
     sendPrivateMessage,
     updatePrivateMessage,
     deletePrivateMessage,
-    markPrivateAsRead,
     onReceivePrivateMessage,
     onPrivateMessageReceived,
     onPrivateMessagesRead,
