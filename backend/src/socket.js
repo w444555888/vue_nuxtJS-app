@@ -17,6 +17,7 @@ import { triggerGroupStockAiReply } from "./services/groupStockAi.js";
 const onlineUsers = new Map(); // socketId -> { userId, roomId }
 // userConnections：以 user 為主鍵，記錄這個使用者目前對應哪條 socket
 const userConnections = new Map(); // userId -> socketId
+const REPLAY_CHUNK_SIZE = 200; // 最多補 200 筆，避免一次補太多資料造成尖峰負載
 
 const buildPrivateConversationId = (userIdA, userIdB) => {
   return `private_${Math.min(userIdA, userIdB)}_${Math.max(userIdA, userIdB)}`;
@@ -153,35 +154,61 @@ export default (io) => {
       // 1) 客戶端帶 lastSeq（最後收到的序號）進來
       // 2) 後端查出 id > lastSeq 的漏訊一次補回
       // 3) 補完後，後續新訊息走一般 WS 即時推送
-      if (Number.isInteger(lastSeq) && lastSeq > 0) {
-        const missedMessages = await prisma.message.findMany({
-          where: {
-            roomId,
-            id: { gt: lastSeq },
-          },
-          include: {
-            user: {
-              select: { id: true, username: true, avatar: true },
+      const parsedLastSeq = Number(lastSeq);
+      if (Number.isInteger(parsedLastSeq) && parsedLastSeq > 0) {
+        let replayCursor = parsedLastSeq;
+        let replayBatchCount = 0;
+
+        while (true) {
+          const missedMessages = await prisma.message.findMany({
+            where: {
+              roomId,
+              id: { gt: replayCursor },
             },
-            replyToMessage: {
-              select: {
-                id: true,
-                content: true,
-                imageUrl: true,
-                user: {
-                  select: { id: true, username: true },
+            include: {
+              user: {
+                select: { id: true, username: true, avatar: true },
+              },
+              replyToMessage: {
+                select: {
+                  id: true,
+                  content: true,
+                  imageUrl: true,
+                  user: {
+                    select: { id: true, username: true },
+                  },
                 },
               },
             },
-          },
-          orderBy: { id: "asc" },
-        });
+            orderBy: { id: "asc" },
+            take: REPLAY_CHUNK_SIZE,
+          });
 
-        if (missedMessages.length > 0) {
+          if (missedMessages.length === 0) {
+            break;
+          }
+
           socket.emit(
             "room_missed_messages",
             missedMessages.map((message) => formatRoomMessageEvent(message))
           );
+
+          replayBatchCount += 1;
+          replayCursor = missedMessages[missedMessages.length - 1].id;
+
+          if (missedMessages.length < REPLAY_CHUNK_SIZE) {
+            break;
+          }
+        }
+
+        if (replayBatchCount > 1) {
+          logger.info("聊天室補漏分批完成", {
+            userId: authenticatedUserId,
+            roomId,
+            lastSeq: parsedLastSeq,
+            batches: replayBatchCount,
+            chunkSize: REPLAY_CHUNK_SIZE,
+          });
         }
       }
 
@@ -413,55 +440,101 @@ export default (io) => {
     // 加入私聊對話
     socket.on("join_private_chat", async (data) => {
       const { friendId, lastSeq } = data || {};
-      const conversationId = buildPrivateConversationId(authenticatedUserId, friendId);
+      const friendIdNum = Number(friendId);
+      if (!Number.isInteger(friendIdNum) || friendIdNum <= 0) {
+        socket.emit("error", { message: "friendId 不可為空或格式錯誤" });
+        return;
+      }
+
+      const isFriend = await prisma.friend.findFirst({
+        where: {
+          OR: [
+            { userId1: authenticatedUserId, userId2: friendIdNum },
+            { userId1: friendIdNum, userId2: authenticatedUserId },
+          ],
+        },
+      });
+
+      if (!isFriend) {
+        socket.emit("error", { message: "該用戶不是你的好友" });
+        return;
+      }
+
+      const conversationId = buildPrivateConversationId(authenticatedUserId, friendIdNum);
       socket.join(conversationId);
 
       // 私聊採用同樣機制：用 lastSeq 補漏，再接回即時事件流。
-      if (Number.isInteger(lastSeq) && lastSeq > 0) {
-        const missedMessages = await prisma.privateMessage.findMany({
-          where: {
-            OR: [
-              {
-                senderId: authenticatedUserId,
-                receiverId: friendId,
-              },
-              {
-                senderId: friendId,
-                receiverId: authenticatedUserId,
-              },
-            ],
-            id: { gt: lastSeq },
-          },
-          include: {
-            sender: {
-              select: { id: true, username: true, avatar: true },
+      const parsedLastSeq = Number(lastSeq);
+      if (Number.isInteger(parsedLastSeq) && parsedLastSeq > 0) {
+        let replayCursor = parsedLastSeq;
+        let replayBatchCount = 0;
+
+        while (true) {
+          const missedMessages = await prisma.privateMessage.findMany({
+            where: {
+              OR: [
+                {
+                  senderId: authenticatedUserId,
+                  receiverId: friendIdNum,
+                },
+                {
+                  senderId: friendIdNum,
+                  receiverId: authenticatedUserId,
+                },
+              ],
+              id: { gt: replayCursor },
             },
-            receiver: {
-              select: { id: true, username: true, avatar: true },
-            },
-            replyToMessage: {
-              select: {
-                id: true,
-                content: true,
-                imageUrl: true,
-                sender: {
-                  select: { id: true, username: true },
+            include: {
+              sender: {
+                select: { id: true, username: true, avatar: true },
+              },
+              receiver: {
+                select: { id: true, username: true, avatar: true },
+              },
+              replyToMessage: {
+                select: {
+                  id: true,
+                  content: true,
+                  imageUrl: true,
+                  sender: {
+                    select: { id: true, username: true },
+                  },
                 },
               },
             },
-          },
-          orderBy: { id: "asc" },
-        });
+            orderBy: { id: "asc" },
+            take: REPLAY_CHUNK_SIZE,
+          });
 
-        if (missedMessages.length > 0) {
+          if (missedMessages.length === 0) {
+            break;
+          }
+
           socket.emit(
             "private_missed_messages",
             missedMessages.map((message) => formatPrivateMessageEvent(message))
           );
+
+          replayBatchCount += 1;
+          replayCursor = missedMessages[missedMessages.length - 1].id;
+
+          if (missedMessages.length < REPLAY_CHUNK_SIZE) {
+            break;
+          }
+        }
+
+        if (replayBatchCount > 1) {
+          logger.info("私聊補漏分批完成", {
+            userId: authenticatedUserId,
+            friendId: friendIdNum,
+            lastSeq: parsedLastSeq,
+            batches: replayBatchCount,
+            chunkSize: REPLAY_CHUNK_SIZE,
+          });
         }
       }
 
-      logger.info(`用戶加入私聊`, { userId: authenticatedUserId, friendId });
+      logger.info(`用戶加入私聊`, { userId: authenticatedUserId, friendId: friendIdNum });
     });
 
     socket.on("leave_private_chat", (data) => {
@@ -537,7 +610,7 @@ export default (io) => {
             content: content ? String(content).trim() : "",
             imageUrl: imageUrl || null,
             senderId: authenticatedUserId,
-            receiverId: friendId,
+            receiverId: friendIdNum,
             isRead: false,
             replyToMessageId: parsedReplyToMessageId,
           },
@@ -562,7 +635,7 @@ export default (io) => {
         });
 
         // 構建對話ID
-        const conversationId = buildPrivateConversationId(authenticatedUserId, friendId);
+        const conversationId = buildPrivateConversationId(authenticatedUserId, friendIdNum);
 
         const event = formatPrivateMessageEvent(message);
 
@@ -574,7 +647,7 @@ export default (io) => {
         }
 
         // 如果接收者線上，標記為已讀
-        const receiverSocketId = userConnections.get(friendId);
+        const receiverSocketId = userConnections.get(friendIdNum);
         if (receiverSocketId) {
           const receiverSocket = io.sockets.sockets.get(receiverSocketId);
           if (receiverSocket) {
