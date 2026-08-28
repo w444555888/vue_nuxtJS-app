@@ -198,8 +198,10 @@ import dayjs from 'dayjs'
 import Modal from '~/components/Modal.vue'
 import ConfirmModal from '~/components/ConfirmModal.vue'
 import { CHAT_UPLOAD_LIMITS, useChatService } from '~/composables/useChatService'
+import { useChatCache } from '~/composables/useChatCache'
 import { useSocket } from '~/composables/useSocket'
 import { useAuthStore } from '~/stores/auth'
+import { useChatStore } from '~/stores/chat'
 
 interface Message {
   id: number
@@ -265,7 +267,8 @@ const closeChat = () => {
   emit('close')
 }
 
-const messages = ref<Message[]>([])
+const chatStore = useChatStore()
+const messages = computed<Message[]>(() => chatStore.getRoomMessages<Message>(props.room.id))
 const inputMessage = ref('')
 const messagesListRef = ref<HTMLElement | null>(null)
 const isLoading = ref(false)
@@ -292,6 +295,7 @@ const contextMenu = ref({
 const mediaInputRef = ref<HTMLInputElement | null>(null)
 
 const chatService = useChatService()
+const chatCache = useChatCache()
 const {
   initSocket,
   joinRoom,
@@ -317,7 +321,6 @@ let messageUpdatedListener: ((data: any) => void) | null = null
 let messageDeletedListener: ((data: any) => void) | null = null
 let connectListener: ((recovered: boolean) => void) | null = null
 const joinedRoomId = ref<number | null>(null)
-const messageIdSet = ref<Set<number>>(new Set())
 
 // 以目前訊息序號最大值作為 snapshot 游標，提供斷線後補償。
 const getLastSeq = () => {
@@ -337,7 +340,7 @@ const applyCreatedMessage = (data: any) => {
     return
   }
 
-  if (messageIdSet.value.has(messageId)) {
+  if (chatStore.hasRoomMessage(props.room.id, messageId)) {
     return
   }
 
@@ -355,8 +358,8 @@ const applyCreatedMessage = (data: any) => {
     createdAt: data.createdAt || new Date().toISOString()
   }
 
-  messageIdSet.value.add(messageId)
-  messages.value.push(newMessage)
+  chatStore.addRoomMessage(props.room.id, newMessage)
+  void chatCache.putRoomMessage(props.room.id, newMessage)
   nextTick(() => scrollToBottom())
 }
 
@@ -365,15 +368,23 @@ const applyUpdatedMessage = (data: any) => {
     return
   }
 
-  const target = messages.value.find((item) => item.id === data.id)
-  if (!target) {
+  const patch: Record<string, any> = {
+    content: data.content
+  }
+
+  if (data.seq) {
+    patch.seq = data.seq
+  }
+
+  const updated = chatStore.updateRoomMessage(props.room.id, data.id, patch)
+  if (!updated) {
     return
   }
 
-  target.content = data.content
-  if (data.seq) {
-    target.seq = data.seq
-  }
+  void chatCache.updateRoomMessage(props.room.id, data.id, {
+    content: data.content,
+    seq: data.seq
+  })
 }
 
 const applyDeletedMessage = (data: any) => {
@@ -382,8 +393,8 @@ const applyDeletedMessage = (data: any) => {
   }
 
   const messageId = Number(data?.id)
-  messages.value = messages.value.filter((item) => item.id !== messageId)
-  messageIdSet.value.delete(messageId)
+  chatStore.removeRoomMessage(props.room.id, messageId)
+  void chatCache.deleteRoomMessage(props.room.id, messageId)
 
   if (replyTarget.value?.id === messageId) {
     replyTarget.value = null
@@ -411,19 +422,35 @@ const joinRoomWithRecovery = (useLastSeq: boolean = true) => {
   joinedRoomId.value = props.room.id
 }
 
+const applyRoomSnapshot = (rawMessages: any[]) => {
+  const sortedMessages = [...rawMessages].sort((a: any, b: any) => (a.id || 0) - (b.id || 0))
+  const normalizedMessages: Message[] = sortedMessages.map((item: any) => ({
+    ...item,
+    seq: Number(item.seq ?? item.id),
+    roomId: Number(item.roomId || props.room.id)
+  }))
+
+  chatStore.setRoomMessages(props.room.id, normalizedMessages)
+  return normalizedMessages
+}
+
 // 加載消息
 const loadMessages = async () => {
   try {
     isLoading.value = true
+
+    const cachedMessages = await chatCache.getRoomMessages(props.room.id)
+
+    if (cachedMessages.length > 0) {
+      applyRoomSnapshot(cachedMessages)
+      await nextTick()
+      scrollToBottom()
+    }
+
     const result = await chatService.fetchMessages(props.room.id)
     if (result.success) {
-      const sortedMessages = [...(result.data || [])].sort((a: any, b: any) => (a.id || 0) - (b.id || 0))
-      messages.value = sortedMessages.map((item: any) => ({
-        ...item,
-        seq: item.id,
-        roomId: item.roomId || props.room.id
-      }))
-      messageIdSet.value = new Set(messages.value.map((item) => item.id))
+      const normalizedMessages = applyRoomSnapshot(result.data || [])
+      void chatCache.upsertRoomMessages(props.room.id, normalizedMessages)
       // 自動滾動到最底部
       await nextTick()
       scrollToBottom()
@@ -762,15 +789,14 @@ onUnmounted(() => {
 })
 
 // 監控房間變化，重新加載消息
-watch(() => props.room.id, async (newRoomId, oldRoomId) => {
+watch(() => props.room.id, async (_, oldRoomId) => {
   if (oldRoomId) {
     leaveRoom(oldRoomId)
   }
 
   joinedRoomId.value = null
   replyTarget.value = null
-  messageIdSet.value = new Set()
-  messages.value = []
+  chatStore.setCurrentRoom(props.room)
   await loadMessages()
   joinRoomWithRecovery()
 }, { immediate: false })

@@ -1,6 +1,8 @@
 export const useAuthService = () => {
   const { post } = useHttpClient()
   const authStore = useAuthStore()
+  const chatStore = useChatStore()
+  const chatCache = useChatCache()
   const router = useRouter()
 
   // 刷新 Access Token（Refresh Token 由 HttpOnly Cookie 自動帶上）
@@ -88,6 +90,13 @@ export const useAuthService = () => {
     } finally {
       const socket = useSocket()
       socket.disconnectSocket()
+
+      try {
+        await chatCache.clearAll()
+      } catch (error) {
+        console.warn('清理聊天快取失敗:', error)
+      }
+      chatStore.resetState()
       
       authStore.clearAuth()
       router.push('/login')

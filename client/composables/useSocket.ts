@@ -5,13 +5,30 @@ const socketRef = ref<Socket | null>(null)
 const isConnectedRef = ref(false)
 let lastTokenRef: string | null = null
 let isHandlingWsAuthFailure = false
+type PendingJoinIntent =
+  | { type: 'room'; userId: number; roomId: number; lastSeq: number }
+  | { type: 'private'; userId: number; friendId: number; lastSeq: number }
+let pendingJoinIntent: PendingJoinIntent | null = null
 const connectListenerMap = new WeakMap<
   (recovered: boolean) => void,
   () => void
 >()
 
 const DEFAULT_ACK_TIMEOUT_MS = 8000
-const DEFAULT_EMIT_RETRIES = 3
+let wsTraceEnabled = false
+
+const wsTrace = (message: string, details?: Record<string, any>) => {
+  if (!wsTraceEnabled) {
+    return
+  }
+
+  if (details) {
+    console.info(`[WS_TRACE] ${message}`, details)
+    return
+  }
+
+  console.info(`[WS_TRACE] ${message}`)
+}
 
 const getConnectedSocket = () => {
   if (socketRef.value && socketRef.value.connected) {
@@ -23,15 +40,28 @@ const getConnectedSocket = () => {
 const emitIfConnected = (event: string, payload: any, options?: { volatile?: boolean }) => {
   const socket = getConnectedSocket()
   if (!socket) {
+    wsTrace('emit skipped: socket not connected', {
+      event,
+      hasSocket: Boolean(socketRef.value),
+      connected: Boolean(socketRef.value?.connected)
+    })
     console.warn(`[Socket] 尚未連線，略過事件: ${event}`)
     return false
   }
 
   if (options?.volatile) {
+    wsTrace('emit volatile', {
+      event,
+      socketId: socket.id
+    })
     socket.volatile.emit(event, payload)
     return true
   }
 
+  wsTrace('emit', {
+    event,
+    socketId: socket.id
+  })
   socket.emit(event, payload)
   return true
 }
@@ -47,9 +77,17 @@ const emitWithAck = <T = any>(event: string, payload: any, timeoutMs = DEFAULT_A
   return new Promise((resolve, reject) => {
     const socket = getConnectedSocket()
     if (!socket) {
+      wsTrace('ack emit blocked: socket not connected', { event })
       reject(new Error('Socket 尚未連接'))
       return
     }
+
+    const startedAt = Date.now()
+    wsTrace('ack emit start', {
+      event,
+      socketId: socket.id,
+      timeoutMs
+    })
 
     let settled = false
 
@@ -65,11 +103,16 @@ const emitWithAck = <T = any>(event: string, payload: any, timeoutMs = DEFAULT_A
 
       settled = true
       cleanup()
+      wsTrace('ack emit disconnected', {
+        event,
+        socketId: socket.id,
+        reason,
+        elapsedMs: Date.now() - startedAt
+      })
       reject(new Error(`${event} 傳送期間連線中斷`))
     }
 
-    const maxAckAttempts = DEFAULT_EMIT_RETRIES + 1
-    const fallbackTimeoutMs = timeoutMs * maxAckAttempts + 1000
+    const fallbackTimeoutMs = timeoutMs + 1000
 
     const fallbackTimer = setTimeout(() => {
       if (settled) {
@@ -78,12 +121,17 @@ const emitWithAck = <T = any>(event: string, payload: any, timeoutMs = DEFAULT_A
 
       settled = true
       cleanup()
+      wsTrace('ack emit client-timeout', {
+        event,
+        socketId: socket.id,
+        elapsedMs: Date.now() - startedAt
+      })
       reject(new Error(`${event} 客戶端逾時`))
     }, fallbackTimeoutMs)
 
     socket.on('disconnect', onDisconnect)
 
-    // 以 Socket.IO 的 timeout + retries 為主，本地超時僅作為最終保底，時間覆蓋完整重試週期。
+    // 以 Socket.IO 的 timeout 為主，本地超時僅作為最終保底。
     socket.timeout(timeoutMs).emit(event, payload, (error: Error | null, response: T) => {
       if (settled) {
         return
@@ -93,9 +141,21 @@ const emitWithAck = <T = any>(event: string, payload: any, timeoutMs = DEFAULT_A
       cleanup()
 
       if (error) {
+        wsTrace('ack emit failed', {
+          event,
+          socketId: socket.id,
+          elapsedMs: Date.now() - startedAt,
+          error: error?.message || 'unknown'
+        })
         reject(new Error(`${event} ACK 超時或重試失敗`))
         return
       }
+
+      wsTrace('ack emit success', {
+        event,
+        socketId: socket.id,
+        elapsedMs: Date.now() - startedAt
+      })
 
       resolve(response)
     })
@@ -109,6 +169,7 @@ export const useSocket = () => {
 
   const socketUrl = config.public.socketUrl || 'http://127.0.0.1:3001'
   const wsDebugEnabled = Boolean(config.public.wsDebug)
+  wsTraceEnabled = wsDebugEnabled
 
   const wsDebugLog = (message: string, details?: any) => {
     if (!wsDebugEnabled) {
@@ -130,12 +191,29 @@ export const useSocket = () => {
 
     // 如果 socket 已存在但 token 變了（登出或切換帳號），斷開並重新連接
     if (socketRef.value && lastTokenRef && lastTokenRef !== currentToken) {
-      console.log('[Socket] Token 變化，重新連接...')
+      wsTrace('initSocket token changed, recreate socket', {
+        hasSocket: true
+      })
+      wsDebugLog('Token 變化，重新連接...')
       socketRef.value.disconnect()
       socketRef.value = null
     }
 
     if (socketRef.value) {
+      if (!socketRef.value.connected) {
+        wsTrace('initSocket reusing disconnected socket, calling connect()', {
+          socketId: socketRef.value.id || null
+        })
+        socketRef.value.auth = {
+          token: currentToken
+        }
+        socketRef.value.connect()
+      }
+
+      wsTrace('initSocket skipped: socket instance already exists', {
+        connected: socketRef.value.connected,
+        socketId: socketRef.value.id || null
+      })
       return
     }
 
@@ -144,9 +222,6 @@ export const useSocket = () => {
       auth: {
         token: currentToken
       },
-      // 針對需要 ACK 的 client emit，啟用自動重送與 ACK 等待時間。
-      retries: DEFAULT_EMIT_RETRIES,
-      ackTimeout: DEFAULT_ACK_TIMEOUT_MS,
       reconnection: true,
       reconnectionDelay: 1000,
       reconnectionDelayMax: 5000,
@@ -157,13 +232,51 @@ export const useSocket = () => {
 
     socketRef.value.on('connect', () => {
       isConnectedRef.value = true
+      wsTrace('socket connected', {
+        socketId: socketRef.value?.id || null,
+        recovered: Boolean(socketRef.value?.recovered)
+      })
       const isRecovered = Boolean(socketRef.value?.recovered)
-      console.log(`Socket 已連接 (id=${socketRef.value?.id}, recovered=${isRecovered})`)
+      wsDebugLog('socket connected', {
+        socketId: socketRef.value?.id || null,
+        recovered: isRecovered
+      })
 
       if (isRecovered) {
-        console.log('[Socket] 連線狀態恢復成功，斷線期間漏掉的事件將由 Socket.IO 補送')
+        wsDebugLog('連線狀態恢復成功，斷線期間漏掉的事件將由 Socket.IO 補送')
       } else {
-        console.log('[Socket] 非恢復連線（首次連線或恢復失敗），維持既有 Snapshot + lastSeq 補償流程')
+        wsDebugLog('非恢復連線（首次連線或恢復失敗），維持既有 Snapshot + lastSeq 補償流程')
+      }
+
+      if (pendingJoinIntent) {
+        const intent = pendingJoinIntent
+        pendingJoinIntent = null
+
+        if (intent.type === 'room') {
+          wsTrace('flush pending join_room', {
+            userId: intent.userId,
+            roomId: intent.roomId,
+            lastSeq: intent.lastSeq,
+            socketId: socketRef.value?.id || null
+          })
+          socketRef.value?.emit('join_room', {
+            userId: intent.userId,
+            roomId: intent.roomId,
+            lastSeq: intent.lastSeq
+          })
+        } else {
+          wsTrace('flush pending join_private_chat', {
+            userId: intent.userId,
+            friendId: intent.friendId,
+            lastSeq: intent.lastSeq,
+            socketId: socketRef.value?.id || null
+          })
+          socketRef.value?.emit('join_private_chat', {
+            userId: intent.userId,
+            friendId: intent.friendId,
+            lastSeq: intent.lastSeq
+          })
+        }
       }
 
       const engine = socketRef.value?.io.engine
@@ -180,6 +293,11 @@ export const useSocket = () => {
 
     socketRef.value.on('connect_error', (error: any) => {
       isConnectedRef.value = false
+      wsTrace('socket connect_error', {
+        message: error?.message || 'unknown',
+        description: error?.description,
+        context: error?.context
+      })
       console.error('Socket 連線失敗(connect_error):', error?.message || error)
       wsDebugLog('connect_error 詳細資訊', {
         description: error?.description,
@@ -213,7 +331,17 @@ export const useSocket = () => {
 
     socketRef.value.on('disconnect', (reason: string, details?: any) => {
       isConnectedRef.value = false
-      console.log(`Socket 已斷開，原因: ${reason}`)
+      wsTrace('socket disconnected', {
+        reason,
+        message: details?.message,
+        description: details?.description,
+        context: details?.context,
+        socketId: socketRef.value?.id || null
+      })
+      wsDebugLog('socket disconnected', {
+        reason,
+        socketId: socketRef.value?.id || null
+      })
       wsDebugLog('disconnect 詳細資訊', {
         message: details?.message,
         description: details?.description,
@@ -252,16 +380,102 @@ export const useSocket = () => {
       socketRef.value.disconnect()
       socketRef.value = null
       isConnectedRef.value = false
+      pendingJoinIntent = null
     }
+  }
+
+  const ensureSocketConnected = (timeoutMs: number = DEFAULT_ACK_TIMEOUT_MS) => {
+    initSocket()
+
+    const currentSocket = socketRef.value
+    if (!currentSocket) {
+      return Promise.reject(new Error('Socket 初始化失敗'))
+    }
+
+    if (currentSocket.connected) {
+      return Promise.resolve()
+    }
+
+    currentSocket.connect()
+
+    return new Promise<void>((resolve, reject) => {
+      let settled = false
+
+      const cleanup = () => {
+        clearTimeout(timer)
+        currentSocket.off('connect', onConnect)
+        currentSocket.off('connect_error', onConnectError)
+      }
+
+      const onConnect = () => {
+        if (settled) {
+          return
+        }
+
+        settled = true
+        cleanup()
+        resolve()
+      }
+
+      const onConnectError = (error: any) => {
+        if (settled) {
+          return
+        }
+
+        settled = true
+        cleanup()
+        reject(new Error(error?.message || 'Socket 連線失敗'))
+      }
+
+      const timer = setTimeout(() => {
+        if (settled) {
+          return
+        }
+
+        settled = true
+        cleanup()
+        reject(new Error('Socket 連線逾時'))
+      }, timeoutMs)
+
+      currentSocket.on('connect', onConnect)
+      currentSocket.on('connect_error', onConnectError)
+    })
   }
 
   // Snapshot + WS：加入時帶上 lastSeq，讓後端先補發遺失事件再接即時流。
   const joinRoom = (userId: number, roomId: number, lastSeq: number = 0) => {
-    emitIfConnected('join_room', { userId, roomId, lastSeq })
+    wsTrace('join_room requested', {
+      userId,
+      roomId,
+      lastSeq,
+      connected: Boolean(socketRef.value?.connected),
+      socketId: socketRef.value?.id || null
+    })
+
+    const payload = { userId, roomId, lastSeq }
+    const sent = emitIfConnected('join_room', payload)
+
+    if (!sent) {
+      pendingJoinIntent = {
+        type: 'room',
+        userId,
+        roomId,
+        lastSeq
+      }
+      wsTrace('queue pending join_room', payload)
+      initSocket()
+      return
+    }
+
+    pendingJoinIntent = null
   }
 
   // 離開聊天室
   const leaveRoom = (roomId: number) => {
+    if (pendingJoinIntent?.type === 'room' && pendingJoinIntent.roomId === roomId) {
+      pendingJoinIntent = null
+    }
+
     emitIfConnected('leave_room', { roomId })
   }
 
@@ -273,6 +487,8 @@ export const useSocket = () => {
     imageUrl?: string,
     replyToMessageId?: number | null
   ) => {
+    await ensureSocketConnected()
+
     return emitWithAck<{ success: boolean; message?: string; event?: any }>('send_message', {
       userId,
       roomId,
@@ -411,15 +627,42 @@ export const useSocket = () => {
 
   // 加入私聊對話
   const joinPrivateChat = (userId: number, friendId: number) => {
-    emitIfConnected('join_private_chat', { userId, friendId })
+    joinPrivateChatWithSeq(userId, friendId, 0)
   }
 
   const joinPrivateChatWithSeq = (userId: number, friendId: number, lastSeq: number = 0) => {
     // Snapshot + WS：私聊重入時使用 lastSeq 續傳未收消息。
-    emitIfConnected('join_private_chat', { userId, friendId, lastSeq })
+    wsTrace('join_private_chat requested', {
+      userId,
+      friendId,
+      lastSeq,
+      connected: Boolean(socketRef.value?.connected),
+      socketId: socketRef.value?.id || null
+    })
+
+    const payload = { userId, friendId, lastSeq }
+    const sent = emitIfConnected('join_private_chat', payload)
+
+    if (!sent) {
+      pendingJoinIntent = {
+        type: 'private',
+        userId,
+        friendId,
+        lastSeq
+      }
+      wsTrace('queue pending join_private_chat', payload)
+      initSocket()
+      return
+    }
+
+    pendingJoinIntent = null
   }
 
   const leavePrivateChat = (friendId: number) => {
+    if (pendingJoinIntent?.type === 'private' && pendingJoinIntent.friendId === friendId) {
+      pendingJoinIntent = null
+    }
+
     emitIfConnected('leave_private_chat', { friendId })
   }
 
@@ -436,6 +679,8 @@ export const useSocket = () => {
     imageUrl?: string,
     replyToMessageId?: number | null
   ) => {
+    await ensureSocketConnected()
+
     return emitWithAck<{ success: boolean; message?: string; event?: any }>('send_private_message', {
       userId,
       friendId,
@@ -447,11 +692,15 @@ export const useSocket = () => {
 
   // 編輯私聊消息（ACK）
   const updatePrivateMessage = async (userId: number, friendId: number, messageId: number, content: string) => {
+    await ensureSocketConnected()
+
     return emitWithAck<{ success: boolean; message?: string; event?: any }>('update_private_message', { userId, friendId, messageId, content })
   }
 
   // 刪除私聊消息（ACK）
   const deletePrivateMessage = async (userId: number, friendId: number, messageId: number) => {
+    await ensureSocketConnected()
+
     return emitWithAck<{ success: boolean; message?: string; event?: any }>('delete_private_message', { userId, friendId, messageId })
   }
 

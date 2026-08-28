@@ -151,8 +151,7 @@ export const useChatService = () => {
         timestamp: msg.createdAt,
         createdAt: msg.createdAt
       }))
-      
-      chatStore.setMessages(formattedMessages)
+
       return { success: result.success, data: formattedMessages }
     } catch (error: any) {
       console.error('獲取消息失敗:', error)

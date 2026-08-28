@@ -159,8 +159,10 @@ import dayjs from 'dayjs'
 import { message } from 'ant-design-vue'
 import { PictureOutlined } from '@antdv-next/icons'
 import Modal from '~/components/Modal.vue'
+import { useChatCache } from '~/composables/useChatCache'
 import { CHAT_UPLOAD_LIMITS, useChatService } from '~/composables/useChatService'
 import { useSocket } from '~/composables/useSocket'
+import { useChatStore } from '~/stores/chat'
 
 interface Friend {
   id: number
@@ -211,9 +213,13 @@ const emit = defineEmits<{
 }>()
 
 const chatService = useChatService()
+const chatCache = useChatCache()
 const socket = useSocket()
+const chatStore = useChatStore()
 
-const messages = ref<Message[]>([])
+const messages = computed<Message[]>(() => {
+  return chatStore.getPrivateMessages<Message>(props.currentUserId, props.friend.id)
+})
 const messageContent = ref('')
 const showEditModal = ref(false)
 const editingContent = ref('')
@@ -241,7 +247,6 @@ let privateMissedMessagesListener: ((data: any[]) => void) | null = null
 let privateMessageUpdatedListener: ((data: any) => void) | null = null
 let privateMessageDeletedListener: ((data: any) => void) | null = null
 let connectListener: ((recovered: boolean) => void) | null = null
-const messageIdSet = ref<Set<number>>(new Set())
 
 // 以 seq 當作 snapshot 游標，讓私聊重連可補回遺失事件。
 const getLastSeq = () => {
@@ -266,12 +271,11 @@ const applyPrivateMessage = (data: any) => {
     return
   }
 
-  if (messageIdSet.value.has(messageId)) {
+  if (chatStore.hasPrivateMessage(props.currentUserId, props.friend.id, messageId)) {
     return
   }
 
-  messageIdSet.value.add(messageId)
-  messages.value.push({
+  const newMessage: Message = {
     id: messageId,
     seq: Number(data?.seq || messageId),
     content: data.content,
@@ -284,7 +288,10 @@ const applyPrivateMessage = (data: any) => {
     receiverId: data.receiverId,
     isRead: data.isRead,
     createdAt: data.createdAt
-  })
+  }
+
+  chatStore.addPrivateMessage(props.currentUserId, props.friend.id, newMessage)
+  void chatCache.putPrivateMessage(props.currentUserId, props.friend.id, newMessage)
 }
 
 const isCurrentConversationEvent = (data: any) => {
@@ -299,12 +306,28 @@ const applyUpdatedPrivateMessage = (data: any) => {
     return
   }
 
-  const target = messages.value.find((item) => item.id === data?.id)
-  if (!target) {
+  const patch: Record<string, any> = {
+    content: data.content
+  }
+
+  if (data.seq) {
+    patch.seq = data.seq
+  }
+
+  const updated = chatStore.updatePrivateMessage(
+    props.currentUserId,
+    props.friend.id,
+    data.id,
+    patch
+  )
+  if (!updated) {
     return
   }
 
-  target.content = data.content
+  void chatCache.updatePrivateMessage(props.currentUserId, props.friend.id, data.id, {
+    content: data.content,
+    seq: data.seq
+  })
 }
 
 const applyDeletedPrivateMessage = (data: any) => {
@@ -317,13 +340,12 @@ const applyDeletedPrivateMessage = (data: any) => {
     return
   }
 
-  const index = messages.value.findIndex((item) => item.id === messageId)
-  if (index === -1) {
+  const removed = chatStore.removePrivateMessage(props.currentUserId, props.friend.id, messageId)
+  if (!removed) {
     return
   }
 
-  messages.value.splice(index, 1)
-  messageIdSet.value.delete(messageId)
+  void chatCache.deletePrivateMessage(props.currentUserId, props.friend.id, messageId)
 
   if (replyTarget.value?.id === messageId) {
     replyTarget.value = null
@@ -646,26 +668,48 @@ const setupMessageListener = () => {
   }
 }
 
+const applyPrivateSnapshot = (rawMessages: any[]) => {
+  const sortedMessages = [...rawMessages].sort((a: any, b: any) => (a.id || 0) - (b.id || 0))
+  const normalizedMessages: Message[] = sortedMessages.map((item: any) => ({
+    ...item,
+    seq: Number(item.seq ?? item.id)
+  }))
+
+  chatStore.setPrivateMessages(props.currentUserId, props.friend.id, normalizedMessages)
+  return normalizedMessages
+}
+
 const loadMessages = async () => {
-  const result = await chatService.fetchPrivateMessages(props.friend.id)
-  if (result.success && result.data) {
-    const sortedMessages = [...(result.data.messages || [])].sort((a: any, b: any) => (a.id || 0) - (b.id || 0))
-    messages.value = sortedMessages.map((item: any) => ({ ...item, seq: item.id }))
-    messageIdSet.value = new Set(messages.value.map((item) => item.id))
+  try {
+    const cachedMessages = await chatCache.getPrivateMessages(props.currentUserId, props.friend.id)
 
-    // 加入私聊 Socket 房間
-    joinPrivateWithRecovery()
+    if (cachedMessages.length > 0) {
+      applyPrivateSnapshot(cachedMessages)
+    }
 
-    // 標記消息為已讀
-    await chatService.markPrivateAsRead(props.friend.id)
-
-    // 設置消息監聽器
-    setupMessageListener()
-
-    console.log(`開始與 ${props.friend.username} 的私聊`)
-  } else {
-    message.error(result.error || '無法加載聊天記錄')
+    const result = await chatService.fetchPrivateMessages(props.friend.id)
+    if (result.success && result.data) {
+      const normalizedMessages = applyPrivateSnapshot(result.data.messages || [])
+      void chatCache.upsertPrivateMessages(props.currentUserId, props.friend.id, normalizedMessages)
+    } else if (messages.value.length === 0) {
+      message.error(result.error || '無法加載聊天記錄')
+    }
+  } catch (error) {
+    console.error('載入私聊訊息失敗:', error)
+    if (messages.value.length === 0) {
+      message.error('無法加載聊天記錄')
+    }
   }
+
+  joinPrivateWithRecovery()
+
+  try {
+    await chatService.markPrivateAsRead(props.friend.id)
+  } catch (error) {
+    console.warn('標記已讀失敗:', error)
+  }
+
+  setupMessageListener()
 }
 
 // 監聽好友變化時重新加載消息
@@ -676,8 +720,6 @@ watch(
       socket.leavePrivateChat(oldFriendId)
     }
 
-    messages.value = []
-    messageIdSet.value = new Set()
     messageContent.value = ''
     replyTarget.value = null
     loadMessages()

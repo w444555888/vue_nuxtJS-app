@@ -7,26 +7,23 @@ import logger from "../utils/logger.js";
  */
 export const performanceMiddleware = (req, res, next) => {
   const start = Date.now();
-  const originalJson = res.json.bind(res);
-  const originalSend = res.send.bind(res);
+  let logged = false;
 
-  res.json = function (data) {
+  const logPerf = () => {
+    if (logged) {
+      return;
+    }
+
+    logged = true;
     const duration = Date.now() - start;
     logger.perf(`API ${req.method} ${req.path}`, {
       duration,
       status: res.statusCode,
     });
-    return originalJson(data);
   };
 
-  res.send = function (data) {
-    const duration = Date.now() - start;
-    logger.perf(`API ${req.method} ${req.path}`, {
-      duration,
-      status: res.statusCode,
-    });
-    return originalSend(data);
-  };
+  res.once("finish", logPerf);
+  res.once("close", logPerf);
 
   next();
 };
