@@ -69,7 +69,7 @@
               <button @click.stop="showRoomMenu(room)" class="btn-menu">⋮</button>
             </div>
             <p class="room-desc">{{ room.description || '無描述' }}</p>
-            <span v-if="room.unreadCount > 0" class="badge">{{ room.unreadCount }}</span>
+            <span v-if="(room.unreadCount ?? 0) > 0" class="badge">{{ room.unreadCount ?? 0 }}</span>
             
             <!-- 群組菜單 -->
             <div v-if="openMenu?.id === room.id" class="room-menu">

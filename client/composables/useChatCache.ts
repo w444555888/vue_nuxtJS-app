@@ -1,6 +1,4 @@
-import DexieCtor from 'dexie/dist/dexie.mjs'
-
-type Table<T = any, Key = any> = any
+import Dexie, { type Table } from 'dexie'
 
 const ROOM_MESSAGE_RETENTION_LIMIT = 500
 const PRIVATE_MESSAGE_RETENTION_LIMIT = 500
@@ -41,7 +39,7 @@ interface SyncState {
   updatedAt: number
 }
 
-class ChatCacheDb extends (DexieCtor as any) {
+class ChatCacheDb extends Dexie {
   roomMessages!: Table<CachedRoomMessage, number>
   privateMessages!: Table<CachedPrivateMessage, number>
   syncStates!: Table<SyncState, string>

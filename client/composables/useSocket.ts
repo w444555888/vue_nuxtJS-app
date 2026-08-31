@@ -49,6 +49,7 @@ const emitIfConnected = (event: string, payload: any, options?: { volatile?: boo
     return false
   }
 
+  // 最佳努力送出，來不及就直接丟棄，不保證到達
   if (options?.volatile) {
     wsTrace('emit volatile', {
       event,
@@ -62,6 +63,7 @@ const emitIfConnected = (event: string, payload: any, options?: { volatile?: boo
     event,
     socketId: socket.id
   })
+  // 可靠一點，會盡量送出去
   socket.emit(event, payload)
   return true
 }
@@ -223,9 +225,9 @@ export const useSocket = () => {
         token: currentToken
       },
       reconnection: true,
-      reconnectionDelay: 1000,
-      reconnectionDelayMax: 5000,
-      reconnectionAttempts: 5
+      reconnectionDelay: 1000, // 初始重連延遲時間 1 秒
+      reconnectionDelayMax: 5000, // 最大重連延遲時間 5 秒
+      reconnectionAttempts: 5 // 最大重連次數 5 次
     })
 
     lastTokenRef = currentToken
