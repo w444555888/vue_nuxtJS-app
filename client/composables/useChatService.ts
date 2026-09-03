@@ -301,11 +301,18 @@ export const useChatService = () => {
   // 上傳圖片（小文件，單次上傳）
   const uploadImage = async (file: File, onProgress?: (progress: number) => void) => {
     try {
-      onProgress?.(10)
       const formData = new FormData()
       formData.append('file', file)
       
-      const result = await post('/api/chat/upload', formData)
+      const result = await post('/api/chat/upload', formData, {
+        // 瀏覽器回報目前 request 已送出的 bytes；保留最後 10% 顯示後端處理中。
+        onUploadProgress: (event) => {
+          if (!event.total) return
+
+          const transferProgress = Math.round((event.loaded / event.total) * 90)
+          onProgress?.(transferProgress)
+        }
+      })
       if (result.success) {
         onProgress?.(100)
       }
@@ -335,7 +342,16 @@ export const useChatService = () => {
       }
 
       // 並發上傳分片（最多 3 個同時）
-      let uploadedChunks = 0
+      const uploadedBytesByChunk = new Map<number, number>()
+      const reportTransferProgress = () => {
+        const uploadedBytes = chunks.reduce(
+          (total, chunk, index) => total + (uploadedBytesByChunk.get(index) || 0),
+          0
+        )
+        // 前 90% 反映瀏覽器到後端的真實傳輸量；剩餘部分用於後端合併與上傳雲端。
+        onProgress?.(Math.min(90, Math.round((uploadedBytes / file.size) * 90)))
+      }
+
       const uploadChunk = async (index: number): Promise<void> => {
         const chunkBlob = chunks[index]
         if (!chunkBlob) return
@@ -347,15 +363,26 @@ export const useChatService = () => {
         formData.append('file', chunkBlob, `${file.name}.part${index}`)
 
         try {
-            const result = await post('/api/chat/upload', formData)
+          const result = await post('/api/chat/upload', formData, {
+            onUploadProgress: (event) => {
+              if (!event.total) return
+
+              // event.total 包含 multipart 邊界等額外資料，因此以分片原始大小正規化。
+              const uploadedBytes = Math.min(
+                chunkBlob.size,
+                Math.round((event.loaded / event.total) * chunkBlob.size)
+              )
+              uploadedBytesByChunk.set(index, uploadedBytes)
+              reportTransferProgress()
+            }
+          })
           if (!result.success) {
             throw new Error(result.message || '分片上傳失敗')
           }
 
-          uploadedChunks++
-          // 進度：前 90% 用於分片上傳
-          const uploadProgress = Math.round((uploadedChunks / totalChunks) * 90)
-          onProgress?.(uploadProgress)
+          // 某些瀏覽器不一定觸發最後一筆 progress event，成功回應時補為完整分片。
+          uploadedBytesByChunk.set(index, chunkBlob.size)
+          reportTransferProgress()
         } catch (error) {
           throw error
         }

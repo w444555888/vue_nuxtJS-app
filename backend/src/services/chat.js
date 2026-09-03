@@ -809,9 +809,9 @@ export const markPrivateMessagesRead = async (userId, friendId) => {
 // ==================== 媒體上傳功能 ====================
 
 const MEDIA_UPLOAD_LIMITS = {
-  directUploadMaxBytes: 6 * 1024 * 1024,
-  chunkUploadMaxBytes: 4 * 1024 * 1024,
-  mergedUploadMaxBytes: 50 * 1024 * 1024,
+  directUploadMaxBytes: 6 * 1024 * 1024, // 6MB
+  chunkUploadMaxBytes: 4 * 1024 * 1024, // 4MB
+  mergedUploadMaxBytes: 50 * 1024 * 1024, // 50MB
 };
 
 /**
@@ -828,7 +828,7 @@ export const handleMediaUpload = async (
   const { uploadImageBuffer } = await import("../utils/cloudinary.js");
 
   try {
-    // ===== 模式 1: 分片上傳 =====
+    // === 模式 1: 分片上傳 =====
     if (uploadId && chunkIndex !== undefined) {
       if (!fileBuffer) {
         throw createError("未選擇分片文件", 400);
@@ -850,7 +850,7 @@ export const handleMediaUpload = async (
       };
     }
 
-    // ===== 模式 2: 合併分片 =====
+    // ==== 模式 2: 合併分片並上傳 =====
     if (uploadId && totalChunks && chunkIndex === undefined && !fileBuffer) {
       const mergedBuffer = mergeChunks(uploadId, parseInt(totalChunks, 10));
 
@@ -870,7 +870,7 @@ export const handleMediaUpload = async (
       return {
         success: true,
         data: { mediaUrl },
-        message: "媒體上傳成功",
+        message: "合併分片媒體上傳成功",
       };
     }
 
@@ -893,7 +893,7 @@ export const handleMediaUpload = async (
       return {
         success: true,
         data: { mediaUrl },
-        message: "媒體上傳成功",
+        message: "小文件媒體上傳成功",
       };
     }
 

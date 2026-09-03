@@ -19,7 +19,7 @@
     </div>
 
     <!-- 私聊消息區 -->
-    <div class="messages-container">
+    <div ref="messagesListRef" class="messages-container">
       <div v-if="messages.length === 0" class="empty-messages">
         暫無消息，開始對話吧
       </div>
@@ -219,6 +219,7 @@ const messages = computed<Message[]>(() => {
   return chatStore.getPrivateMessages<Message>(props.currentUserId, props.friend.id)
 })
 const messageContent = ref('')
+const messagesListRef = ref<HTMLElement | null>(null)
 const showEditModal = ref(false)
 const editingContent = ref('')
 const editingMessage = ref<Message | null>(null)
@@ -294,6 +295,7 @@ const applyPrivateMessage = (data: any) => {
 
   chatStore.addPrivateMessage(props.currentUserId, props.friend.id, newMessage)
   void chatCache.putPrivateMessage(props.currentUserId, props.friend.id, newMessage)
+  nextTick(() => scrollToBottom())
 }
 
 const isCurrentConversationEvent = (data: any) => {
@@ -599,18 +601,28 @@ const applyPrivateSnapshot = (rawMessages: any[]) => {
   return normalizedMessages
 }
 
+const scrollToBottom = () => {
+  if (messagesListRef.value) {
+    messagesListRef.value.scrollTop = messagesListRef.value.scrollHeight
+  }
+}
+
 const loadMessages = async () => {
   try {
     const cachedMessages = await chatCache.getPrivateMessages(props.currentUserId, props.friend.id)
 
     if (cachedMessages.length > 0) {
       applyPrivateSnapshot(cachedMessages)
+      await nextTick()
+      scrollToBottom()
     }
 
     const result = await chatService.fetchPrivateMessages(props.friend.id)
     if (result.success && result.data) {
       const normalizedMessages = applyPrivateSnapshot(result.data.messages || [])
       void chatCache.upsertPrivateMessages(props.currentUserId, props.friend.id, normalizedMessages)
+      await nextTick()
+      scrollToBottom()
     } else if (messages.value.length === 0) {
       message.error(result.error || '無法加載聊天記錄')
     }
