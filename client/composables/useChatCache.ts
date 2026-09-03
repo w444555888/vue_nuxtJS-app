@@ -57,8 +57,22 @@ class ChatCacheDb extends Dexie {
 
 const db = import.meta.client ? new ChatCacheDb() : null
 
-// 回傳快取資料庫是否可在目前環境使用。
 const isCacheReady = () => Boolean(db)
+
+
+/**
+ * 內部方法  
+ * @internal
+ * @function toPositiveInt
+ * @function seqOrId
+ * @function bySeqThenId
+ * @function maxSeq
+ * @function setSyncState
+ * @function getSyncState
+ * @function buildPrivateConversationId
+ * @function pruneOldRoomMessages
+ * @function pruneOldPrivateMessages
+ */
 
 // 將任意輸入轉為正整數，不合法時回傳 null。
 const toPositiveInt = (value: unknown) => {
@@ -66,10 +80,12 @@ const toPositiveInt = (value: unknown) => {
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null
 }
 
+
 // 取訊息排序基準：優先 seq，缺少時退回 id。
 const seqOrId = (item: { seq?: number; id: number }) => {
   return Number(item.seq ?? item.id ?? 0)
 }
+
 
 // 依 seq 再依 id 進行穩定排序。
 const bySeqThenId = <T extends { id: number; seq?: number }>(a: T, b: T) => {
@@ -81,6 +97,7 @@ const bySeqThenId = <T extends { id: number; seq?: number }>(a: T, b: T) => {
   return a.id - b.id
 }
 
+
 // 取得一批訊息中的最大 seq 值。
 const maxSeq = (items: Array<{ id: number; seq?: number }>) => {
   return items.reduce((maxValue, item) => {
@@ -88,6 +105,7 @@ const maxSeq = (items: Array<{ id: number; seq?: number }>) => {
     return value > maxValue ? value : maxValue
   }, 0)
 }
+
 
 // 寫入同步游標，並防止 lastSeq 回退。
 const setSyncState = async (key: string, lastSeq: number) => {
@@ -105,6 +123,7 @@ const setSyncState = async (key: string, lastSeq: number) => {
   })
 }
 
+
 // 讀取同步游標，找不到時回傳 0。
 const getSyncState = async (key: string) => {
   if (!db) {
@@ -114,6 +133,7 @@ const getSyncState = async (key: string) => {
   const row = await db.syncStates.get(key)
   return row?.lastSeq ?? 0
 }
+
 
 // 產生私聊固定會話 ID，確保雙方順序一致。
 const buildPrivateConversationId = (userIdA: number, userIdB: number) => {
@@ -169,6 +189,8 @@ const pruneOldPrivateMessages = async (
     await db.privateMessages.bulkDelete(deleteIds)
   }
 }
+
+
 
 // 提供聊天快取相關的讀寫 API。
 export const useChatCache = () => {
@@ -361,7 +383,7 @@ export const useChatCache = () => {
     await db.privateMessages.delete(parsedMessageId)
   }
 
-  // 取得房間同步游標，用於重連補償。
+  // 目前未被外部呼叫，預留給未來重連補償流程使用。
   const getRoomLastSeq = async (roomId: number) => {
     const parsedRoomId = toPositiveInt(roomId)
     if (!parsedRoomId) {
@@ -371,7 +393,7 @@ export const useChatCache = () => {
     return getSyncState(`room:${parsedRoomId}`)
   }
 
-  // 取得私聊同步游標，用於重連補償。
+  // 目前未被外部呼叫，預留給未來重連補償流程使用。
   const getPrivateLastSeq = async (currentUserId: number, friendId: number) => {
     const conversationId = buildPrivateConversationId(currentUserId, friendId)
     return getSyncState(`private:${conversationId}`)
@@ -392,9 +414,6 @@ export const useChatCache = () => {
 
   return {
     isCacheReady,
-    ROOM_MESSAGE_RETENTION_LIMIT,
-    PRIVATE_MESSAGE_RETENTION_LIMIT,
-    buildPrivateConversationId,
     getRoomMessages,
     upsertRoomMessages,
     putRoomMessage,
@@ -405,10 +424,6 @@ export const useChatCache = () => {
     putPrivateMessage,
     updatePrivateMessage,
     deletePrivateMessage,
-    pruneOldRoomMessages,
-    pruneOldPrivateMessages,
-    getRoomLastSeq,
-    getPrivateLastSeq,
     clearAll
   }
 }

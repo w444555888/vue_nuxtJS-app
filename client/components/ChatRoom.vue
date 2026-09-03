@@ -194,14 +194,22 @@
 import { ref, watch, nextTick, onMounted, onUnmounted, onUpdated, computed } from 'vue'
 import { message } from 'ant-design-vue'
 import { TeamOutlined, CrownOutlined, PictureOutlined } from '@antdv-next/icons'
-import dayjs from 'dayjs'
 import Modal from '~/components/Modal.vue'
 import ConfirmModal from '~/components/ConfirmModal.vue'
+import { useChatMediaInput } from '~/composables/useChatMediaInput'
+import { useMessageContextMenu } from '~/composables/useMessageContextMenu'
 import { CHAT_UPLOAD_LIMITS, useChatService } from '~/composables/useChatService'
 import { useChatCache } from '~/composables/useChatCache'
 import { useSocket } from '~/composables/useSocket'
 import { useAuthStore } from '~/stores/auth'
 import { useChatStore } from '~/stores/chat'
+import {
+  formatMessageTime as formatTime,
+  isVideoUrl,
+  toImageSrc,
+  truncateReplyContent
+} from '~/utils/chatMessageDisplay'
+import { getLastMessageSeq, normalizeMessageSnapshot } from '~/utils/chatMessageSync'
 
 interface Message {
   id: number
@@ -246,16 +254,6 @@ const props = defineProps<{
   currentUserId: number
 }>()
 
-const toImageSrc = (imageUrl?: string) => {
-  if (!imageUrl) return ''
-  return /^https?:\/\//i.test(imageUrl) ? imageUrl : ''
-}
-
-const isVideoUrl = (url?: string) => {
-  if (!url) return false
-  return /(\.mp4|\.webm|\.mov)(\?|$)/i.test(url) || /\/video\/upload\//i.test(url)
-}
-
 const emit = defineEmits<{
   invite: []
   close: []
@@ -281,18 +279,29 @@ const showEditModal = ref(false)
 const editingContent = ref('')
 const editingMessage = ref<Message | null>(null)
 const showMembersModal = ref(false)
-const previewMedia = ref<string | null>(null)
-const previewType = ref<'image' | 'video' | null>(null)
-const selectedFile = ref<File | null>(null)
-const replyTarget = ref<Message | null>(null)
-const contextMenu = ref({
-  show: false,
-  x: 0,
-  y: 0,
-  message: null as Message | null
-})
-
 const mediaInputRef = ref<HTMLInputElement | null>(null)
+const {
+  replyTarget,
+  contextMenu,
+  showContextMenu,
+  hideContextMenu,
+  startReply,
+  cancelReply
+} = useMessageContextMenu<Message>()
+
+const {
+  previewMedia,
+  previewType,
+  selectedFile,
+  openMediaPicker,
+  onMediaInputChange,
+  clearImagePreview
+} = useChatMediaInput({
+  mediaInputRef,
+  maxImageBytes: CHAT_UPLOAD_LIMITS.MAX_IMAGE_BYTES,
+  maxVideoBytes: CHAT_UPLOAD_LIMITS.MAX_VIDEO_BYTES,
+  onError: (errorMessage) => message.error(errorMessage)
+})
 
 const chatService = useChatService()
 const chatCache = useChatCache()
@@ -320,15 +329,8 @@ let roomMissedMessagesListener: ((data: any[]) => void) | null = null
 let messageUpdatedListener: ((data: any) => void) | null = null
 let messageDeletedListener: ((data: any) => void) | null = null
 let connectListener: ((recovered: boolean) => void) | null = null
+let roomSyncPromise: Promise<void> | null = null
 const joinedRoomId = ref<number | null>(null)
-
-// 以目前訊息序號最大值作為 snapshot 游標，提供斷線後補償。
-const getLastSeq = () => {
-  return messages.value.reduce((maxSeq, item) => {
-    const seqValue = Number(item.seq ?? item.id ?? 0)
-    return seqValue > maxSeq ? seqValue : maxSeq
-  }, 0)
-}
 
 const applyCreatedMessage = (data: any) => {
   if (data?.roomId !== props.room.id) {
@@ -401,32 +403,39 @@ const applyDeletedMessage = (data: any) => {
   }
 }
 
-const truncateReplyContent = (content?: string | null) => {
-  if (!content) {
-    return ''
-  }
-
-  return content.length > 42 ? `${content.slice(0, 42)}...` : content
-}
-
-const joinRoomWithRecovery = (useLastSeq: boolean = true) => {
+// 加入 WS 房間，並告知後端目前游標以補回之後遺漏的新增訊息。
+const joinRoomAndReplayMissedMessages = () => {
   if (!authStore.user?.id) {
     return
   }
 
-  if (useLastSeq) {
-    // Snapshot + WS：先用 lastSeq 對齊歷史缺口，再持續接收即時事件。
-    joinRoom(authStore.user.id, props.room.id, getLastSeq())
-  }
+  // Snapshot + WS：先用 lastSeq 對齊歷史缺口，再持續接收即時事件。
+  joinRoom(authStore.user.id, props.room.id, getLastMessageSeq(messages.value))
 
   joinedRoomId.value = props.room.id
 }
 
+// 以後端 HTTP 快照校正本機資料後，再補快照與加入 WS 之間的新增訊息。
+const syncRoomSnapshotAndJoin = () => {
+  if (roomSyncPromise) {
+    return roomSyncPromise
+  }
+
+  roomSyncPromise = (async () => {
+    try {
+      await loadMessages()
+      joinRoomAndReplayMissedMessages()
+    } finally {
+      roomSyncPromise = null
+    }
+  })()
+
+  return roomSyncPromise
+}
+
 const applyRoomSnapshot = (rawMessages: any[]) => {
-  const sortedMessages = [...rawMessages].sort((a: any, b: any) => (a.id || 0) - (b.id || 0))
-  const normalizedMessages: Message[] = sortedMessages.map((item: any) => ({
+  const normalizedMessages: Message[] = normalizeMessageSnapshot(rawMessages).map((item) => ({
     ...item,
-    seq: Number(item.seq ?? item.id),
     roomId: Number(item.roomId || props.room.id)
   }))
 
@@ -459,60 +468,6 @@ const loadMessages = async () => {
     console.error('加載消息失敗:', error)
   } finally {
     isLoading.value = false
-  }
-}
-
-const openMediaPicker = () => {
-  mediaInputRef.value?.click()
-}
-
-const onMediaInputChange = (event: Event) => {
-  const input = event.target as HTMLInputElement
-  const nativeFile = input.files?.[0]
-
-  if (!nativeFile) {
-    clearImagePreview()
-    return
-  }
-
-  // 驗證文件類型
-  const isImage = nativeFile.type.startsWith('image/')
-  const isVideo = nativeFile.type.startsWith('video/')
-
-  if (!isImage && !isVideo) {
-    message.error('請選擇圖片或影片文件')
-    input.value = ''
-    return
-  }
-
-  // 驗證文件大小
-  const maxSize = isVideo ? CHAT_UPLOAD_LIMITS.MAX_VIDEO_BYTES : CHAT_UPLOAD_LIMITS.MAX_IMAGE_BYTES
-  if (nativeFile.size > maxSize) {
-    message.error(isVideo ? '影片大小不能超過 50MB' : '圖片大小不能超過 10MB')
-    input.value = ''
-    return
-  }
-
-  // 更新預覽
-  if (previewMedia.value && previewMedia.value.startsWith('blob:')) {
-    URL.revokeObjectURL(previewMedia.value)
-  }
-
-  selectedFile.value = nativeFile
-  previewType.value = isVideo ? 'video' : 'image'
-  previewMedia.value = URL.createObjectURL(nativeFile)
-}
-
-// 清除媒體預覽
-const clearImagePreview = () => {
-  if (previewMedia.value && previewMedia.value.startsWith('blob:')) {
-    URL.revokeObjectURL(previewMedia.value)
-  }
-  previewMedia.value = null
-  previewType.value = null
-  selectedFile.value = null
-  if (mediaInputRef.value) {
-    mediaInputRef.value.value = ''
   }
 }
 
@@ -594,45 +549,6 @@ const scrollToBottom = () => {
   if (messagesListRef.value) {
     messagesListRef.value.scrollTop = messagesListRef.value.scrollHeight
   }
-}
-
-// 格式化時間
-const formatTime = (timestamp: string) => {
-  return dayjs(timestamp).format('YYYY-MM-DD HH:mm')
-}
-
-// 顯示右鍵菜單
-const showContextMenu = (event: MouseEvent, msg: Message) => {
-  contextMenu.value = {
-    show: true,
-    x: event.clientX,
-    y: event.clientY,
-    message: msg
-  }
-  
-  // 點擊其他地方時隱藏菜單
-  setTimeout(() => {
-    document.addEventListener('click', hideContextMenu)
-  }, 0)
-}
-
-const startReply = () => {
-  if (!contextMenu.value.message) {
-    return
-  }
-
-  replyTarget.value = contextMenu.value.message
-  hideContextMenu()
-}
-
-const cancelReply = () => {
-  replyTarget.value = null
-}
-
-// 隱藏右鍵菜單
-const hideContextMenu = () => {
-  contextMenu.value.show = false
-  document.removeEventListener('click', hideContextMenu)
 }
 
 // 打開編輯模態框
@@ -730,12 +646,13 @@ onMounted(async () => {
 
   connectListener = (recovered: boolean) => {
     if (recovered) {
-      // Recovery 成功時房間狀態已恢復，避免重送 join_room 造成重複廣播。
-      joinRoomWithRecovery(false)
+      // Socket.IO 已恢復房間與遺漏封包，只記錄目前加入狀態，不重送 join_room。
+      joinedRoomId.value = props.room.id
       return
     }
 
-    joinRoomWithRecovery(true)
+    // 恢復失敗時，先以 HTTP 權威快照校正新增、編輯與刪除，再由 WS 補快照交界的新訊息。
+    void syncRoomSnapshotAndJoin()
   }
 
   onReceiveMessage(roomMessageListener)
@@ -744,11 +661,8 @@ onMounted(async () => {
   onMessageDeleted(messageDeletedListener)
   onConnect(connectListener)
   
-  // 加載歷史消息
-  await loadMessages()
-  
-  // 加入聊天室
-  joinRoomWithRecovery()
+  // 先取得後端快照，再加入 WS 並補上快照交界的訊息。
+  await syncRoomSnapshotAndJoin()
 })
 
 // 每次更新後自動滾動到底部
@@ -797,8 +711,7 @@ watch(() => props.room.id, async (_, oldRoomId) => {
   joinedRoomId.value = null
   replyTarget.value = null
   chatStore.setCurrentRoom(props.room)
-  await loadMessages()
-  joinRoomWithRecovery()
+  await syncRoomSnapshotAndJoin()
 }, { immediate: false })
 </script>
 

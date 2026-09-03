@@ -155,14 +155,22 @@
 
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted, watch, nextTick, computed } from 'vue'
-import dayjs from 'dayjs'
 import { message } from 'ant-design-vue'
 import { PictureOutlined } from '@antdv-next/icons'
 import Modal from '~/components/Modal.vue'
 import { useChatCache } from '~/composables/useChatCache'
+import { useChatMediaInput } from '~/composables/useChatMediaInput'
+import { useMessageContextMenu } from '~/composables/useMessageContextMenu'
 import { CHAT_UPLOAD_LIMITS, useChatService } from '~/composables/useChatService'
 import { useSocket } from '~/composables/useSocket'
 import { useChatStore } from '~/stores/chat'
+import {
+  formatMessageTime as formatTime,
+  isVideoUrl,
+  toImageSrc,
+  truncateReplyContent
+} from '~/utils/chatMessageDisplay'
+import { getLastMessageSeq, normalizeMessageSnapshot } from '~/utils/chatMessageSync'
 
 interface Friend {
   id: number
@@ -197,16 +205,6 @@ const props = defineProps<{
   currentUserId: number
 }>()
 
-const toImageSrc = (imageUrl?: string) => {
-  if (!imageUrl) return ''
-  return /^https?:\/\//i.test(imageUrl) ? imageUrl : ''
-}
-
-const isVideoUrl = (url?: string) => {
-  if (!url) return false
-  return /(\.mp4|\.webm|\.mov)(\?|$)/i.test(url) || /\/video\/upload\//i.test(url)
-}
-
 const emit = defineEmits<{
   close: []
   messageSent: []
@@ -229,32 +227,36 @@ const isSending = ref(false)
 const lastSendAt = ref(0)
 const SEND_THROTTLE_MS = 500
 const uploadProgress = ref(0)
-const previewMedia = ref<string | null>(null)
-const previewType = ref<'image' | 'video' | null>(null)
-const selectedFile = ref<File | null>(null)
-const replyTarget = ref<Message | null>(null)
-const contextMenu = ref({
-  show: false,
-  x: 0,
-  y: 0,
-  message: null as Message | null
-})
-
 const mediaInputRef = ref<HTMLInputElement | null>(null)
+const {
+  replyTarget,
+  contextMenu,
+  showContextMenu,
+  hideContextMenu,
+  startReply,
+  cancelReply
+} = useMessageContextMenu<Message>()
+
+const {
+  previewMedia,
+  previewType,
+  selectedFile,
+  openMediaPicker,
+  onMediaInputChange,
+  clearImagePreview
+} = useChatMediaInput({
+  mediaInputRef,
+  maxImageBytes: CHAT_UPLOAD_LIMITS.MAX_IMAGE_BYTES,
+  maxVideoBytes: CHAT_UPLOAD_LIMITS.MAX_VIDEO_BYTES,
+  onError: (errorMessage) => message.error(errorMessage)
+})
 
 let messageListener: ((data: any) => void) | null = null
 let privateMissedMessagesListener: ((data: any[]) => void) | null = null
 let privateMessageUpdatedListener: ((data: any) => void) | null = null
 let privateMessageDeletedListener: ((data: any) => void) | null = null
 let connectListener: ((recovered: boolean) => void) | null = null
-
-// 以 seq 當作 snapshot 游標，讓私聊重連可補回遺失事件。
-const getLastSeq = () => {
-  return messages.value.reduce((maxSeq, item) => {
-    const seqValue = Number(item.seq ?? item.id ?? 0)
-    return seqValue > maxSeq ? seqValue : maxSeq
-  }, 0)
-}
+let privateSyncPromise: Promise<void> | null = null
 
 const applyPrivateMessage = (data: any) => {
   if (
@@ -352,56 +354,32 @@ const applyDeletedPrivateMessage = (data: any) => {
   }
 }
 
-const truncateReplyContent = (content?: string | null) => {
-  if (!content) {
-    return ''
-  }
-
-  return content.length > 42 ? `${content.slice(0, 42)}...` : content
-}
-
-const joinPrivateWithRecovery = (useLastSeq: boolean = true) => {
-  if (!useLastSeq) {
-    return
-  }
-
+// 加入 WS 私聊會話，並告知後端目前游標以補回之後遺漏的新增訊息。
+const joinPrivateChatAndReplayMissedMessages = () => {
   // Snapshot + WS：私聊先補差異，再回到即時推送。
-  socket.joinPrivateChatWithSeq(props.currentUserId, props.friend.id, getLastSeq())
+  socket.joinPrivateChatWithSeq(
+    props.currentUserId,
+    props.friend.id,
+    getLastMessageSeq(messages.value)
+  )
 }
 
-const formatTime = (timestamp: string) => {
-  return dayjs(timestamp).format('YYYY-MM-DD HH:mm')
-}
-
-const showContextMenu = (event: MouseEvent, msg: Message) => {
-  contextMenu.value = {
-    show: true,
-    x: event.clientX,
-    y: event.clientY,
-    message: msg
+// 以後端 HTTP 快照校正本機私聊資料後，再補快照與加入 WS 之間的新增訊息。
+const syncPrivateSnapshotAndJoin = () => {
+  if (privateSyncPromise) {
+    return privateSyncPromise
   }
 
-  setTimeout(() => {
-    document.addEventListener('click', hideContextMenu)
-  }, 0)
-}
+  privateSyncPromise = (async () => {
+    try {
+      await loadMessages()
+      joinPrivateChatAndReplayMissedMessages()
+    } finally {
+      privateSyncPromise = null
+    }
+  })()
 
-const startReply = () => {
-  if (!contextMenu.value.message) {
-    return
-  }
-
-  replyTarget.value = contextMenu.value.message
-  hideContextMenu()
-}
-
-const cancelReply = () => {
-  replyTarget.value = null
-}
-
-const hideContextMenu = () => {
-  contextMenu.value.show = false
-  document.removeEventListener('click', hideContextMenu)
+  return privateSyncPromise
 }
 
 const openEditModal = () => {
@@ -446,60 +424,6 @@ const closeChat = () => {
 
   socket.leavePrivateChat(props.friend.id)
   emit('close')
-}
-
-const openMediaPicker = () => {
-  mediaInputRef.value?.click()
-}
-
-const onMediaInputChange = (event: Event) => {
-  const input = event.target as HTMLInputElement
-  const nativeFile = input.files?.[0]
-
-  if (!nativeFile) {
-    clearImagePreview()
-    return
-  }
-
-  // 驗證文件類型
-  const isImage = nativeFile.type.startsWith('image/')
-  const isVideo = nativeFile.type.startsWith('video/')
-
-  if (!isImage && !isVideo) {
-    message.error('請選擇圖片或影片文件')
-    input.value = ''
-    return
-  }
-
-  // 驗證文件大小
-  const maxSize = isVideo ? CHAT_UPLOAD_LIMITS.MAX_VIDEO_BYTES : CHAT_UPLOAD_LIMITS.MAX_IMAGE_BYTES
-  if (nativeFile.size > maxSize) {
-    message.error(isVideo ? '影片大小不能超過 50MB' : '圖片大小不能超過 10MB')
-    input.value = ''
-    return
-  }
-
-  // 更新預覽
-  if (previewMedia.value && previewMedia.value.startsWith('blob:')) {
-    URL.revokeObjectURL(previewMedia.value)
-  }
-
-  selectedFile.value = nativeFile
-  previewType.value = isVideo ? 'video' : 'image'
-  previewMedia.value = URL.createObjectURL(nativeFile)
-}
-
-// 清除媒體預覽
-const clearImagePreview = () => {
-  if (previewMedia.value && previewMedia.value.startsWith('blob:')) {
-    URL.revokeObjectURL(previewMedia.value)
-  }
-  previewMedia.value = null
-  previewType.value = null
-  selectedFile.value = null
-  if (mediaInputRef.value) {
-    mediaInputRef.value.value = ''
-  }
 }
 
 const sendMessage = async () => {
@@ -669,11 +593,7 @@ const setupMessageListener = () => {
 }
 
 const applyPrivateSnapshot = (rawMessages: any[]) => {
-  const sortedMessages = [...rawMessages].sort((a: any, b: any) => (a.id || 0) - (b.id || 0))
-  const normalizedMessages: Message[] = sortedMessages.map((item: any) => ({
-    ...item,
-    seq: Number(item.seq ?? item.id)
-  }))
+  const normalizedMessages: Message[] = normalizeMessageSnapshot(rawMessages)
 
   chatStore.setPrivateMessages(props.currentUserId, props.friend.id, normalizedMessages)
   return normalizedMessages
@@ -701,28 +621,25 @@ const loadMessages = async () => {
     }
   }
 
-  joinPrivateWithRecovery()
-
   try {
     await chatService.markPrivateAsRead(props.friend.id)
   } catch (error) {
     console.warn('標記已讀失敗:', error)
   }
-
-  setupMessageListener()
 }
 
 // 監聽好友變化時重新加載消息
 watch(
   () => props.friend.id,
-  (newFriendId, oldFriendId) => {
+  async (newFriendId, oldFriendId) => {
     if (oldFriendId) {
       socket.leavePrivateChat(oldFriendId)
     }
 
     messageContent.value = ''
     replyTarget.value = null
-    loadMessages()
+    setupMessageListener()
+    await syncPrivateSnapshotAndJoin()
   }
 )
 
@@ -741,12 +658,14 @@ onMounted(() => {
       return
     }
 
-    joinPrivateWithRecovery(true)
+    // 恢復失敗時，先以 HTTP 權威快照校正新增、編輯與刪除，再由 WS 補快照交界的新訊息。
+    void syncPrivateSnapshotAndJoin()
   }
 
   socket.onPrivateMissedMessages(privateMissedMessagesListener)
   socket.onConnect(connectListener)
-  loadMessages()
+  setupMessageListener()
+  void syncPrivateSnapshotAndJoin()
 })
 
 onUnmounted(() => {

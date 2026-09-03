@@ -151,11 +151,11 @@ export default (io) => {
       onlineUsers.set(socket.id, { userId: authenticatedUserId, roomId });
 
       // 斷線補償流程：
-      // 1) 客戶端帶 lastSeq（最後收到的序號）進來
+      // 1) 客戶端帶 lastSeq（最後收到的序號）進來；0 代表尚未收到任何訊息
       // 2) 後端查出 id > lastSeq 的漏訊一次補回
       // 3) 補完後，後續新訊息走一般 WS 即時推送
       const parsedLastSeq = Number(lastSeq);
-      if (Number.isInteger(parsedLastSeq) && parsedLastSeq > 0) {
+      if (Number.isInteger(parsedLastSeq) && parsedLastSeq >= 0) {
         let replayCursor = parsedLastSeq;
         let replayBatchCount = 0;
 
@@ -463,9 +463,9 @@ export default (io) => {
       const conversationId = buildPrivateConversationId(authenticatedUserId, friendIdNum);
       socket.join(conversationId);
 
-      // 私聊採用同樣機制：用 lastSeq 補漏，再接回即時事件流。
+      // 私聊採用同樣機制：用 lastSeq 補漏，再接回即時事件流；0 代表尚未收到任何訊息。
       const parsedLastSeq = Number(lastSeq);
-      if (Number.isInteger(parsedLastSeq) && parsedLastSeq > 0) {
+      if (Number.isInteger(parsedLastSeq) && parsedLastSeq >= 0) {
         let replayCursor = parsedLastSeq;
         let replayBatchCount = 0;
 
