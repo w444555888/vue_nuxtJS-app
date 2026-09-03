@@ -342,14 +342,24 @@ export const useChatService = () => {
       }
 
       // 並發上傳分片（最多 3 個同時）
-      const uploadedBytesByChunk = new Map<number, number>()
-      const reportTransferProgress = () => {
-        const uploadedBytes = chunks.reduce(
-          (total, chunk, index) => total + (uploadedBytesByChunk.get(index) || 0),
-          0
+      const TRANSFER_PROGRESS_MAX = 90
+      const transferredBytesByChunk = new Map<number, number>()
+
+      // 將目前所有分片的已傳送 bytes 加總，換算為完整檔案的 UI 進度。
+      const notifyOverallProgress = () => {
+        const totalTransferredBytes = [...transferredBytesByChunk.values()]
+          .reduce((total, bytes) => total + bytes, 0)
+        const overallProgress = Math.round(
+          (totalTransferredBytes / file.size) * TRANSFER_PROGRESS_MAX
         )
-        // 前 90% 反映瀏覽器到後端的真實傳輸量；剩餘部分用於後端合併與上傳雲端。
-        onProgress?.(Math.min(90, Math.round((uploadedBytes / file.size) * 90)))
+
+        onProgress?.(Math.min(TRANSFER_PROGRESS_MAX, overallProgress))
+      }
+
+      // 更新指定分片目前已送出的 bytes，並通知元件更新整個檔案的進度條。
+      const updateChunkProgress = (chunkIndex: number, transferredBytes: number) => {
+        transferredBytesByChunk.set(chunkIndex, transferredBytes)
+        notifyOverallProgress()
       }
 
       const uploadChunk = async (index: number): Promise<void> => {
@@ -367,13 +377,12 @@ export const useChatService = () => {
             onUploadProgress: (event) => {
               if (!event.total) return
 
-              // event.total 包含 multipart 邊界等額外資料，因此以分片原始大小正規化。
-              const uploadedBytes = Math.min(
+              // Axios 的總量含 multipart 資料；換算成此分片原始檔案的已傳 bytes。
+              const transferredBytes = Math.min(
                 chunkBlob.size,
                 Math.round((event.loaded / event.total) * chunkBlob.size)
               )
-              uploadedBytesByChunk.set(index, uploadedBytes)
-              reportTransferProgress()
+              updateChunkProgress(index, transferredBytes)
             }
           })
           if (!result.success) {
@@ -381,8 +390,7 @@ export const useChatService = () => {
           }
 
           // 某些瀏覽器不一定觸發最後一筆 progress event，成功回應時補為完整分片。
-          uploadedBytesByChunk.set(index, chunkBlob.size)
-          reportTransferProgress()
+          updateChunkProgress(index, chunkBlob.size)
         } catch (error) {
           throw error
         }
