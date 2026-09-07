@@ -19,12 +19,12 @@ export const getMCPClient = async () => {
   );
 
   const transport = new StdioClientTransport({
-    command: "uvx", // uvx finmind-mcp  會啟動官方 Finmind  MCP
+    command: process.env.FINMIND_MCP_COMMAND || "uvx",
     args: ["finmind-mcp"],
     env: {
       ...process.env,
       // 舊設定名稱可無痛沿用；官方 MCP 使用 FINMIND_TOKEN。
-      FINMIND_TOKEN: process.env.FINMIND_API_TOKEN || "",
+      FINMIND_TOKEN: process.env.FINMIND_TOKEN || process.env.FINMIND_API_TOKEN || "",
       // Windows 企業憑證環境可能需要使用系統憑證下載 PyPI 套件。
       UV_SYSTEM_CERTS: process.env.UV_SYSTEM_CERTS || "1",
     },
