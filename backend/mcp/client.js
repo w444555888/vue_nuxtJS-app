@@ -1,16 +1,9 @@
-import path from "path";
-import { fileURLToPath } from "url";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 
-const __filename = fileURLToPath(import.meta.url);
-const __dirname = path.dirname(__filename);
-
 let mcpClient = null;
 
-const getServerScriptPath = () => path.join(__dirname, "stock-server.js");
-
-const initializeMCPClient = async () => {
+export const getMCPClient = async () => {
   if (mcpClient) {
     return mcpClient;
   }
@@ -26,10 +19,15 @@ const initializeMCPClient = async () => {
   );
 
   const transport = new StdioClientTransport({
-    command: process.execPath,
-    args: [getServerScriptPath()],
-    // FINMIND_API_TOKEN。
-    env: process.env,
+    command: "uvx", // uvx finmind-mcp  會啟動官方 Finmind  MCP
+    args: ["finmind-mcp"],
+    env: {
+      ...process.env,
+      // 舊設定名稱可無痛沿用；官方 MCP 使用 FINMIND_TOKEN。
+      FINMIND_TOKEN: process.env.FINMIND_API_TOKEN || "",
+      // Windows 企業憑證環境可能需要使用系統憑證下載 PyPI 套件。
+      UV_SYSTEM_CERTS: process.env.UV_SYSTEM_CERTS || "1",
+    },
   });
 
   await client.connect(transport);
@@ -39,26 +37,3 @@ const initializeMCPClient = async () => {
   return mcpClient;
 };
 
-export const callMCPTool = async (toolName, args = {}) => {
-  const client = await initializeMCPClient();
-  const response = await client.callTool({
-    name: toolName,
-    arguments: args,
-  });
-
-  if (response?.isError) {
-    const firstText = response?.content?.find((item) => item?.type === "text")?.text;
-    throw new Error(firstText || "MCP 工具呼叫失敗");
-  }
-
-  const firstText = response?.content?.find((item) => item?.type === "text")?.text;
-  if (!firstText) {
-    throw new Error("MCP 工具未返回內容");
-  }
-
-  try {
-    return JSON.parse(firstText);
-  } catch {
-    return firstText;
-  }
-};

@@ -23,8 +23,10 @@ const STOCK_SESSION_RESET_REGEX =
 
 const SYMBOL_REGEX = /(?:^|\D)(\d{4})(?:\D|$)/; // 提取 4 碼股票代號，確保前後不是數字，避免誤抓其他數字串。
 const STOCK_SESSION_TTL_MS = 15 * 60 * 1000; // 股票對話狀態的有效期限，15 分鐘內有互動則持續有效，超過則自動失效。
+const STOCK_SESSION_HISTORY_LIMIT = 4;
+const STOCK_SESSION_TURN_MAX_LENGTH = 600;
 
-const roomStockSessions = new Map(); // roomId -> { trackedSymbol, updatedAt }
+const roomStockSessions = new Map(); // roomId -> { trackedSymbol, updatedAt, history }
 
 const getRoomSessionKey = (roomId) => String(roomId);
 
@@ -44,11 +46,39 @@ const getRoomStockSession = (roomId) => {
   return session;
 };
 
-const setRoomStockSession = (roomId, trackedSymbol) => {
+const compactStockSessionText = (value) => {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  return text.slice(0, STOCK_SESSION_TURN_MAX_LENGTH);
+};
+
+const setRoomStockSession = (roomId, trackedSymbol, turn = null) => {
+  const previousSession = getRoomStockSession(roomId);
+  const isSameSymbol = previousSession?.trackedSymbol === trackedSymbol;
+  const history = isSameSymbol && Array.isArray(previousSession?.history)
+    ? previousSession.history.slice(-STOCK_SESSION_HISTORY_LIMIT)
+    : [];
+
+  const question = compactStockSessionText(turn?.question);
+  const reply = compactStockSessionText(turn?.reply);
+  if (question && reply) {
+    history.push({ question, reply });
+  }
+
   roomStockSessions.set(getRoomSessionKey(roomId), {
     trackedSymbol: trackedSymbol || null,
     updatedAt: new Date().toISOString(),
+    history: history.slice(-STOCK_SESSION_HISTORY_LIMIT),
   });
+};
+
+const formatStockSessionHistory = (history = []) => {
+  if (!Array.isArray(history) || history.length === 0) {
+    return "無（這是本輪股票對話的第一個問題）";
+  }
+
+  return history
+    .map((turn, index) => `第 ${index + 1} 輪問題：${turn.question}\n第 ${index + 1} 輪回答摘要：${turn.reply}`)
+    .join("\n");
 };
 
 const clearRoomStockSession = (roomId) => {
@@ -144,65 +174,19 @@ const extractSymbol = (content) => {
   return match?.[1] || null;
 };
 
-// 呼叫智能 API 選擇器：根據用戶查詢內容動態決定要取得哪些資料
-const executeStockTool = async (symbol, userQuery) => {
-  try {
-    return await mcpTools.execute("get_stock_context", {
-      symbol,
-      userQuery,
-    });
-  } catch (error) {
-    logger.error(`股票工具執行失敗 (${symbol})`, { error: error?.message });
-    return null;
-  }
-};
-
-// 建構給 AI 的提示語，包含使用者問題、工具回覆的股票資訊。
-const buildStockFollowupPrompt = (content, quoteData, trackedSymbol) => {
-  // 支援舊格式（單個quote）和新格式（多API結果）
-  const quote = quoteData?.base || quoteData;
-  const availableSections = [
-    "base",
-    "margin",
-    "borrowable",
-    "monthly",
-    "yearly",
-    "volatility",
-    "index",
-    "topVolume20",
-    "crossMarket",
-    "legalEntityTop",
-    "dividendInfo",
-    "news",
-    "industryChain",
-    "cashFlow",
-    "dividendPolicy",
-    "governmentBankBuySell",
-    "monthRevenue",
-    "financialStatements",
-  ].filter((key) => {
-    const value = quoteData?.[key];
-    if (Array.isArray(value)) {
-      return value.length > 0;
-    }
-    return Boolean(value);
-  });
-  
+// 建構給 Gemini 的提示語；資料集和參數均由官方 FinMind MCP 工具自動選擇。
+const buildStockFollowupPrompt = (content, trackedSymbol, history = []) => {
   return [
-    "你已收到台股工具查詢結果，請用繁體中文回覆。",
-    "回答規則：簡潔、不要杜撰數字、務必提到資料來源與資料時間。",
-    "若工具資料含有本益比、殖利率、股價淨值比、開高低收與成交資訊，請優先引用這些欄位再進行說明。",
-    "若問題涉及三大法人/籌碼，優先引用 legalEntityTop、margin、borrowable、governmentBankBuySell。",
-    "若問題涉及新聞/題材，優先引用 news；若涉及產業或供應鏈，優先引用 industryChain。",
-    "若 news 區塊有資料，請在回覆中至少提供 1-3 則新聞標題與對應連結。",
-    "若問題涉及財報或基本面，優先引用 financialStatements、cashFlow、monthRevenue、dividendPolicy。",
-    "若有波動、月/年區間或大盤欄位，請至少引用 1-2 個最相關數字。",
-    "若某區塊沒有資料，請明確說明「目前該區塊無最新資料」，不要猜測。",
+    "你是台股分析助手，請使用繁體中文回覆。",
+    "你可使用 FinMind 官方 MCP 工具取得即時與歷史資料。涉及行情、法人、財報、營收、股利、新聞、產業、期貨、指數或比較時，必須先查工具資料再回答。",
+    "若下方已解析股票代號，查詢該個股時直接使用該代號；每次呼叫 query_dataset 都必須帶入相同的 data_id，且股價等歷史資料須帶入合理的 start_date。不可省略 data_id。",
+    "回答規則：簡潔、不要杜撰數字、提及資料來源 FinMind 與查詢資料日期。",
+    "請延續下方近期對話；本次工具結果優先於先前回答。",
     "最後一行固定加上：以上資訊僅供參考，非投資建議。",
-    `目前追蹤股票代號：${trackedSymbol || quote?.symbol || "未知"}`,
-    `可用資料區塊：${availableSections.length ? availableSections.join(", ") : "base"}`,
+    `目前追蹤股票代號：${trackedSymbol || "未知"}`,
+    `本輪個股查詢 data_id：${trackedSymbol || "尚未提供"}`,
+    `近期股票對話：${formatStockSessionHistory(history)}`,
     `使用者問題：${String(content || "").trim()}`,
-    `工具資料：${JSON.stringify(quoteData)}`,
   ].join("\n");
 };
 
@@ -541,6 +525,9 @@ export const triggerGroupStockAiReply = async ({ roomId, content, io }) => {
     const isEndMessage = isStockSessionEndMessage(content);
     const symbol = extractSymbol(content);
     const effectiveSymbol = symbol || activeSession?.trackedSymbol || null;
+    const relevantHistory = activeSession?.trackedSymbol === effectiveSymbol
+      ? activeSession.history
+      : [];
 
     const botUser = await ensureBotUser();
     await ensureBotRoomMembership(botUser.id, roomId);
@@ -581,35 +568,31 @@ export const triggerGroupStockAiReply = async ({ roomId, content, io }) => {
     }
 
     let aiText = "";
-    let replyPath = "gemini";
-    let toolQuote = null;
+    let replyPath = "gemini-finmind-mcp";
 
     try {
-      toolQuote = await executeStockTool(effectiveSymbol, content);
-      aiText = await generateAiText(buildStockFollowupPrompt(content, toolQuote, effectiveSymbol));
-      setRoomStockSession(roomId, effectiveSymbol);
+      const finMindMcpTool = await mcpTools.getGeminiTool();
+      aiText = await generateAiText(
+        buildStockFollowupPrompt(content, effectiveSymbol, relevantHistory),
+        { tools: [finMindMcpTool] }
+      );
     } catch (aiError) {
-      logger.error("群組股票 AI 回覆失敗，改用 fallback", {
-        error: aiError?.message || String(aiError),
-      });
+      logger.error(
+        `群組股票 MCP AI 回覆失敗：${aiError?.message || String(aiError)}`
+      );
       replyPath = "fallback";
-      if (toolQuote?.base) {
-        aiText = buildFallbackFollowupText(content, toolQuote);
-        setRoomStockSession(roomId, effectiveSymbol);
-      } else {
-        aiText = "目前無法取得即時股票行情，請稍後重試，或再次提供股票代號（例如 2330）。";
-      }
+      aiText = "目前無法透過 FinMind MCP 取得股票資料，請稍後重試。";
     }
 
     if (!aiText) {
       replyPath = "fallback";
-      if (toolQuote?.base) {
-        aiText = buildFallbackFollowupText(content, toolQuote);
-        setRoomStockSession(roomId, effectiveSymbol);
-      } else {
-        aiText = "目前無法取得即時股票行情，請稍後重試，或再次提供股票代號（例如 2330）。";
-      }
+      aiText = "目前無法透過 FinMind MCP 取得股票資料，請稍後重試。";
     }
+
+    setRoomStockSession(roomId, effectiveSymbol, {
+      question: content,
+      reply: aiText,
+    });
 
     logger.info("GROUP_STOCK_AI 回覆路徑", {
       roomId,

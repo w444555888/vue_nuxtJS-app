@@ -1,7 +1,7 @@
 import express from "express";
 import { verifyToken } from "../middleware/auth.js";
 import { successResponse, errorResponse } from "../utils/responseHandler.js";
-import { getAiChatResponse } from "../services/ai.js";
+import { getAiChatResponse } from "../services/customerServiceAi.js";
 import logger from "../utils/logger.js";
 
 const router = express.Router();
