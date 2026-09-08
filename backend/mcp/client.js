@@ -4,11 +4,15 @@ import logger from "../src/utils/logger.js";
 
 let mcpClient = null;
 
-const redactMcpError = (value) => {
+const redactFinMindToken = (value) => {
   const token = process.env.FINMIND_TOKEN || process.env.FINMIND_API_TOKEN;
   const text = String(value || "").trim();
   return token ? text.replaceAll(token, "[redacted]") : text;
 };
+
+const hasFinMindToken = Boolean(
+    process.env.FINMIND_TOKEN || process.env.FINMIND_API_TOKEN,
+);
 
 export const getMCPClient = async () => {
   if (mcpClient) {
@@ -40,27 +44,24 @@ export const getMCPClient = async () => {
   });
 
   transport.stderr?.on("data", (chunk) => {
-    const message = redactMcpError(chunk);
+    const message = redactFinMindToken(chunk);
     if (message) {
-      logger.error(`FinMind MCP 子程序錯誤：${message}`);
+      logger.debug(`FinMind MCP 子程序輸出：${message}`);
     }
   });
+  
 
-  logger.info("啟動 FinMind MCP", {
-    command,
-    hasFinMindToken: Boolean(
-      process.env.FINMIND_TOKEN || process.env.FINMIND_API_TOKEN,
-    ),
-    hasUvxInPath: process.env.PATH?.split(":").includes("/opt/render/.local/bin") || false,
-  });
+  logger.info(
+    `啟動 FinMind MCP：command=${command}，hasFinMindToken=${hasFinMindToken}`,
+  );
+
 
   try {
     await client.connect(transport);
   } catch (error) {
-    logger.error("FinMind MCP 連線失敗", {
-      command,
-      message: redactMcpError(error?.message || error),
-    });
+    logger.error(
+      `FinMind MCP 連線失敗：command=${command}，${redactFinMindToken(error?.message || error)}`,
+    );
     throw error;
   }
 
