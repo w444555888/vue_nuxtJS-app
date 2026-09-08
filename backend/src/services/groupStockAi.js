@@ -28,9 +28,10 @@ const STOCK_SESSION_TURN_MAX_LENGTH = 600;
 
 const roomStockSessions = new Map(); // roomId -> { trackedSymbol, updatedAt, history }
 
+/** 將聊天室 ID 轉為 Session Map 的 key。 */
 const getRoomSessionKey = (roomId) => String(roomId);
 
-// 取得房間的股票對話狀態，包含目前追蹤的股票代號與最後更新時間。若狀態不存在或已過期，則回傳 null。
+/** 取得尚未過期的房間股票對話狀態。 */
 const getRoomStockSession = (roomId) => {
   const session = roomStockSessions.get(getRoomSessionKey(roomId)) || null;
   if (!session) {
@@ -46,11 +47,13 @@ const getRoomStockSession = (roomId) => {
   return session;
 };
 
+/** 壓縮並限制儲存於對話歷史的文字長度。 */
 const compactStockSessionText = (value) => {
   const text = String(value || "").replace(/\s+/g, " ").trim();
   return text.slice(0, STOCK_SESSION_TURN_MAX_LENGTH);
 };
 
+/** 更新房間追蹤股票與最近問答歷史。 */
 const setRoomStockSession = (roomId, trackedSymbol, turn = null) => {
   const previousSession = getRoomStockSession(roomId);
   const isSameSymbol = previousSession?.trackedSymbol === trackedSymbol;
@@ -71,6 +74,7 @@ const setRoomStockSession = (roomId, trackedSymbol, turn = null) => {
   });
 };
 
+/** 將近期問答歷史格式化為 Gemini Prompt 文字。 */
 const formatStockSessionHistory = (history = []) => {
   if (!Array.isArray(history) || history.length === 0) {
     return "無（這是本輪股票對話的第一個問題）";
@@ -81,18 +85,22 @@ const formatStockSessionHistory = (history = []) => {
     .join("\n");
 };
 
+/** 清除房間的股票對話狀態。 */
 const clearRoomStockSession = (roomId) => {
   roomStockSessions.delete(getRoomSessionKey(roomId));
 };
 
+/** 判斷是否為結束股票對話的指令。 */
 const isStockSessionEndMessage = (content) => {
   return STOCK_SESSION_END_REGEX.test(String(content || "").trim());
 };
 
+/** 判斷是否為重置股票對話的指令。 */
 const isStockSessionResetMessage = (content) => {
   return STOCK_SESSION_RESET_REGEX.test(String(content || "").trim());
 };
 
+/** 依股票關鍵字判斷文字是否具有股票查詢意圖。 */
 const containsFuzzyStockIntent = (text) => {
   const normalized = String(text || "")
     .toLowerCase()
@@ -128,17 +136,7 @@ const containsFuzzyStockIntent = (text) => {
   );
 };
 
-/**
- * 判斷是否應該觸發股票 AI 回覆
- * @param {*} content 使用者輸入的訊息內容
- * @param {*} roomId 房間 ID
- * @returns {boolean} 是否應該觸發股票 AI 回覆
- *  結束/重置命令：只在有活躍會話時觸發
- *  包含 4 碼股票代號：直接觸發
- *  股票相關關鍵字：觸發（股價、漲跌、買點等）
- *  價格查詢意圖：觸發（多少、幾塊、現價等）
- *  無相關內容時不觸發（避免干擾一般群聊）
- */
+/** 判斷群組訊息是否需要觸發股票 AI。 */
 const shouldTriggerStockAi = (content, roomId) => {
   const text = String(content || "").trim();
   if (!text) {
@@ -167,14 +165,14 @@ const shouldTriggerStockAi = (content, roomId) => {
   return false;
 };
 
-// 從使用者訊息中提取 4 碼股票代號
+/** 從使用者訊息提取四碼台股代號。 */
 const extractSymbol = (content) => {
   const text = String(content || "");
   const match = text.match(SYMBOL_REGEX);
   return match?.[1] || null;
 };
 
-// 建構給 Gemini 的提示語；資料集和參數均由官方 FinMind MCP 工具自動選擇。
+/** 建構含股票代號與對話脈絡的 Gemini MCP Prompt。 */
 const buildStockFollowupPrompt = (content, trackedSymbol, history = []) => {
   return [
     "你是台股分析助手，請使用繁體中文回覆。",
@@ -190,16 +188,7 @@ const buildStockFollowupPrompt = (content, trackedSymbol, history = []) => {
   ].join("\n");
 };
 
-/**
- * 確保 AI Bot 的使用者帳號存在，若不存在則嘗試建立。
- * 由於 Bot 帳號具有特殊性（固定 email、可能的 username 衝突），因此採取以下策略：
- * 1. 嘗試以固定 email 查找使用者，若存在則直接回傳。
- * 2. 若 email 不存在，嘗試建立新使用者，username 從固定基底開始，若有衝突則加數字後綴（例如 StockBot、StockBot1、StockBot2...），最多嘗試 5 次。
- * 3. 若嘗試建立使用者時發生非唯一約束錯誤，則繼續嘗試下一個 username；若發生其他錯誤，則拋出。
- * 4. 若所有嘗試都失敗，則拋出無法建立 AI Bot 帳號的錯誤。
- * 這樣的策略可以確保在大多數情況下都能成功取得或建立 AI Bot 帳號，並且避免因為 username 衝突導致的問題。
- * @returns {Promise<Object>} AI Bot 使用者資料
- */
+/** 取得或建立用於發送股票回覆的 Bot 帳號。 */
 const ensureBotUser = async () => {
   const existingByEmail = await prisma.user.findUnique({
     where: { email: BOT_EMAIL },
@@ -234,7 +223,7 @@ const ensureBotUser = async () => {
   throw new Error("無法建立 AI Bot 帳號");
 };
 
-// 確保 AI Bot 是房間成員，若不是則加入房間。這樣可以確保 Bot 有權限在房間內發送訊息。
+/** 確保股票 Bot 已加入指定聊天室。 */
 const ensureBotRoomMembership = async (botUserId, roomId) => {
   await prisma.chatRoomMember.upsert({
     where: {
@@ -251,7 +240,7 @@ const ensureBotRoomMembership = async (botUserId, roomId) => {
   });
 };
 
-// 儲存 Bot 的回覆訊息到資料庫，並包含使用者資料以便後續發送給前端。
+/** 將股票 Bot 回覆儲存為聊天室訊息。 */
 const saveBotMessage = async (botUserId, roomId, content) => {
   return prisma.message.create({
     data: {
@@ -268,7 +257,7 @@ const saveBotMessage = async (botUserId, roomId, content) => {
   });
 };
 
-// 將 Bot 的回覆訊息透過 Socket.IO 發送給房間內的使用者，包含訊息內容與使用者資料。
+/** 透過 Socket.IO 將 Bot 訊息即時推送至聊天室。 */
 const emitBotMessage = (io, roomId, botMessage) => {
   io.to(`room_${roomId}`).emit("receive_message", {
     id: botMessage.id,
@@ -284,236 +273,7 @@ const emitBotMessage = (io, roomId, botMessage) => {
   });
 };
 
-/**
- * 當 AI 回覆無法取得或產生時，根據目前可用的股票資訊建構一個 fallback 的回覆內容。
- * 這個回覆會包含股票的基本行情資訊（價格、漲跌、資料來源與時間），並且根據使用者的問題類型（例如目標價、買賣點）提供一些保守的參考框架或風險控管建議。
- * 這樣可以確保即使 AI 分析服務暫時無法使用，使用者仍然能夠獲得一些有用的資訊，而不是完全沒有回覆。
- */
-const buildFallbackQuoteText = (quote) => {
-  const priceText = formatMaybeNumber(quote?.price);
-  const change = Number.isFinite(quote?.change)
-    ? (quote.change > 0 ? `+${quote.change.toFixed(2)}` : quote.change.toFixed(2))
-    : "N/A";
-  const changePercent = Number.isFinite(quote?.changePercent)
-    ? (quote.changePercent > 0
-        ? `+${quote.changePercent.toFixed(2)}%`
-        : `${quote.changePercent.toFixed(2)}%`)
-    : "N/A";
-  const asOf = quote?.asOf || "N/A";
-  const source = quote?.source || "FinMind";
-  const peText = Number.isFinite(quote?.peRatio) ? quote.peRatio.toFixed(2) : "N/A";
-  const dividendYieldText = Number.isFinite(quote?.dividendYield)
-    ? `${quote.dividendYield.toFixed(2)}%`
-    : "N/A";
-  const pbText = Number.isFinite(quote?.pbRatio) ? quote.pbRatio.toFixed(2) : "N/A";
-  const dayOpenText = Number.isFinite(quote?.dayOpen) ? quote.dayOpen.toFixed(2) : "N/A";
-  const dayHighText = Number.isFinite(quote?.dayHigh) ? quote.dayHigh.toFixed(2) : "N/A";
-  const dayLowText = Number.isFinite(quote?.dayLow) ? quote.dayLow.toFixed(2) : "N/A";
-  const dayCloseText = Number.isFinite(quote?.dayClose) ? quote.dayClose.toFixed(2) : "N/A";
-  const tradeValueText = Number.isFinite(quote?.tradeValueDay)
-    ? Math.round(quote.tradeValueDay).toLocaleString("zh-TW")
-    : "N/A";
-  const transactionCountText = Number.isFinite(quote?.transactionCount)
-    ? Math.round(quote.transactionCount).toLocaleString("zh-TW")
-    : "N/A";
-
-  return [
-    `${quote?.name || quote?.symbol || "台股"} (${quote?.symbol || "N/A"}) 目前價格為 ${priceText}。`,
-    `漲跌：${change} (${changePercent})。`,
-    `估值參考：本益比 ${peText}、殖利率 ${dividendYieldText}、股價淨值比 ${pbText}。`,
-    `日線摘要：開 ${dayOpenText} / 高 ${dayHighText} / 低 ${dayLowText} / 收 ${dayCloseText}。`,
-    `成交概況：成交金額 ${tradeValueText}、成交筆數 ${transactionCountText}。`,
-    `資料來源：${source}，時間：${asOf}。`,
-    "以上資訊僅供參考，非投資建議。",
-  ].join("\n");
-};
-
-const formatMaybeNumber = (value, digits = 2) => {
-  if (!Number.isFinite(value)) {
-    return "N/A";
-  }
-  return Number(value).toFixed(digits);
-};
-
-const formatMaybeInteger = (value) => {
-  if (!Number.isFinite(value)) {
-    return "N/A";
-  }
-  return Math.round(value).toLocaleString("zh-TW");
-};
-
-const buildNewsLinkLines = (newsList, limit = 3) => {
-  if (!Array.isArray(newsList) || newsList.length === 0) {
-    return [];
-  }
-
-  return newsList
-    .filter((item) => item?.link && item?.title)
-    .slice(0, limit)
-    .map((item, index) => {
-      const source = item?.source ? ` (${item.source})` : "";
-      return `新聞連結 ${index + 1}：${item.title}${source} - ${item.link}`;
-    });
-};
-
-const buildExtendedContextLines = (quoteData) => {
-  const lines = [];
-
-  if (quoteData?.margin || quoteData?.borrowable) {
-    const marginBuy = formatMaybeInteger(quoteData?.margin?.marginBuyBalance);
-    const marginSell = formatMaybeInteger(quoteData?.margin?.marginSellBalance);
-    const shortSell = formatMaybeInteger(quoteData?.margin?.shortSellBalance);
-    const borrowedShares = formatMaybeInteger(quoteData?.borrowable?.borrowedShares);
-    lines.push(
-      `籌碼概況：融資餘額 ${marginBuy}、融券餘額 ${marginSell}、借券賣出 ${shortSell}、借券餘額 ${borrowedShares}。`
-    );
-  }
-
-  if (quoteData?.volatility) {
-    const volatilityChange = formatMaybeNumber(quoteData.volatility.priceChange);
-    const volatilityPct = Number.isFinite(quoteData?.volatility?.priceChangePercent)
-      ? `${Number(quoteData.volatility.priceChangePercent).toFixed(2)}%`
-      : "N/A";
-    lines.push(`波動參考：波動值 ${volatilityChange}、波動率 ${volatilityPct}。`);
-  }
-
-  if (quoteData?.monthly || quoteData?.yearly) {
-    const monthlyHigh = formatMaybeNumber(quoteData?.monthly?.monthlyHigh);
-    const monthlyLow = formatMaybeNumber(quoteData?.monthly?.monthlyLow);
-    const yearlyHigh = formatMaybeNumber(quoteData?.yearly?.yearlyHigh);
-    const yearlyLow = formatMaybeNumber(quoteData?.yearly?.yearlyLow);
-    lines.push(`區間參考：月高低 ${monthlyHigh}/${monthlyLow}，年高低 ${yearlyHigh}/${yearlyLow}。`);
-  }
-
-  if (quoteData?.index || quoteData?.crossMarket) {
-    const indexName = quoteData?.index?.IndexName || quoteData?.index?.指數名稱 || "加權指數";
-    const indexClose =
-      quoteData?.index?.ClosingIndex || quoteData?.index?.收盤指數 || quoteData?.index?.IndexValue;
-    const tpexClose = quoteData?.crossMarket?.OTCIndex || quoteData?.crossMarket?.櫃買指數;
-    lines.push(
-      `大盤概況：${indexName} ${formatMaybeNumber(Number(indexClose))}，櫃買指數 ${formatMaybeNumber(Number(tpexClose))}。`
-    );
-  }
-
-  if (Array.isArray(quoteData?.legalEntityTop) && quoteData.legalEntityTop.length > 0) {
-    lines.push(`法人概況：已取得三大法人相關資料 ${quoteData.legalEntityTop.length} 筆。`);
-  }
-
-  if (quoteData?.monthRevenue) {
-    const revenue = formatMaybeInteger(quoteData?.monthRevenue?.revenue);
-    const mom = formatMaybeNumber(quoteData?.monthRevenue?.revenueMoM);
-    const yoy = formatMaybeNumber(quoteData?.monthRevenue?.revenueYoY);
-    lines.push(`營收概況：最新月營收 ${revenue}，月增率 ${mom}%、年增率 ${yoy}%。`);
-  }
-
-  if (quoteData?.financialStatements) {
-    const eps = formatMaybeNumber(quoteData?.financialStatements?.eps);
-    const netIncome = formatMaybeInteger(quoteData?.financialStatements?.netIncome);
-    lines.push(`財報概況：EPS ${eps}、淨利 ${netIncome}。`);
-  }
-
-  if (quoteData?.cashFlow) {
-    const operatingCashFlow = formatMaybeInteger(quoteData?.cashFlow?.operatingCashFlow);
-    const freeCashFlow = formatMaybeInteger(quoteData?.cashFlow?.freeCashFlow);
-    lines.push(`現金流概況：營業現金流 ${operatingCashFlow}、自由現金流 ${freeCashFlow}。`);
-  }
-
-  if (quoteData?.governmentBankBuySell) {
-    const net = formatMaybeInteger(quoteData?.governmentBankBuySell?.net);
-    lines.push(`八大行庫：最新買賣超 ${net}。`);
-  }
-
-  if (Array.isArray(quoteData?.dividendPolicy) && quoteData.dividendPolicy.length > 0) {
-    lines.push(`股利政策：已取得近年股利資料 ${quoteData.dividendPolicy.length} 筆。`);
-  }
-
-  if (Array.isArray(quoteData?.news) && quoteData.news.length > 0) {
-    const latestNewsDate =
-      quoteData.news[0]?.date ||
-      quoteData.news[0]?.Date ||
-      quoteData.news[0]?.datetime ||
-      quoteData.news[0]?.Datetime ||
-      "N/A";
-    lines.push(`新聞概況：近期待讀 ${quoteData.news.length} 則（最近日期 ${latestNewsDate}）。`);
-  }
-
-  if (Array.isArray(quoteData?.industryChain) && quoteData.industryChain.length > 0) {
-    lines.push(`產業鏈概況：已取得 ${quoteData.industryChain.length} 筆相關資料。`);
-  }
-
-  return lines;
-};
-
-// 根據目前價格計算一個參考的價格區間（以現價 ±8% 為例），並格式化為文字。若價格無效則回傳 "N/A"。
-const toPriceRangeText = (price) => {
-  const numericPrice = Number(price || 0);
-  if (!Number.isFinite(numericPrice) || numericPrice <= 0) {
-    return "N/A";
-  }
-
-  const lower = (numericPrice * 0.92).toFixed(2);
-  const upper = (numericPrice * 1.08).toFixed(2);
-  return `${lower} - ${upper}`;
-};
-
-// 呼叫 MCP 工具取得股票報價，並在失敗時回傳 null。這樣可以讓呼叫者根據是否有工具資料來決定後續的回覆內容。
-const buildFallbackFollowupText = (content, quoteData) => {
-  const quote = quoteData?.base || quoteData;
-  const text = String(content || "").trim();
-  const symbolText = `${quote?.name || quote?.symbol || "台股"} (${quote?.symbol || "N/A"})`;
-  const priceText = formatMaybeNumber(quote?.price);
-  const source = quote?.source || "FinMind";
-  const asOf = quote?.asOf || "N/A";
-  const extendedContextLines = buildExtendedContextLines(quoteData);
-  const newsLinkLines = buildNewsLinkLines(quoteData?.news);
-
-  if (/目標價|合理價/.test(text)) {
-    const lines = [
-      `${symbolText} 現價約 ${priceText}。`,
-      "目前 LLM 分析服務忙碌中，先提供保守參考框架：",
-      `參考區間（以現價 ±8%）：${toPriceRangeText(quote?.price)}。`,
-      "你可搭配近 4 季營收成長、毛利率與本益比區間再調整目標價。",
-    ];
-
-    lines.push(...extendedContextLines);
-    lines.push(...newsLinkLines);
-    lines.push(`資料來源：${source}，時間：${asOf}。`);
-    lines.push("以上資訊僅供參考，非投資建議。");
-    return lines.join("\n");
-  }
-
-  if (/買點|賣點|進場|出場|停利|停損/.test(text)) {
-    const stopLoss = Number.isFinite(Number(quote?.price))
-      ? (Number(quote.price) * 0.95).toFixed(2)
-      : "N/A";
-    const takeProfit = Number.isFinite(Number(quote?.price))
-      ? (Number(quote.price) * 1.1).toFixed(2)
-      : "N/A";
-
-    const lines = [
-      `${symbolText} 現價約 ${priceText}。`,
-      "目前 LLM 分析服務忙碌中，先提供風險控管模板：",
-      `可觀察停損參考：${stopLoss}，停利參考：${takeProfit}。`,
-      "請搭配你的持有週期與可承受回撤調整，不建議單一點位重押。",
-    ];
-
-    lines.push(...extendedContextLines);
-    lines.push(...newsLinkLines);
-    lines.push(`資料來源：${source}，時間：${asOf}。`);
-    lines.push("以上資訊僅供參考，非投資建議。");
-    return lines.join("\n");
-  }
-
-  const baseLines = buildFallbackQuoteText(quote).split("\n");
-  if (extendedContextLines.length > 0) {
-    baseLines.splice(baseLines.length - 2, 0, ...extendedContextLines);
-  }
-  if (newsLinkLines.length > 0) {
-    baseLines.splice(baseLines.length - 2, 0, ...newsLinkLines);
-  }
-  return baseLines.join("\n");
-};
-
+/** 處理群組股票訊息並建立、儲存及推送 Bot 回覆。 */
 export const triggerGroupStockAiReply = async ({ roomId, content, io }) => {
   try {
     if (!shouldTriggerStockAi(content, roomId)) {
