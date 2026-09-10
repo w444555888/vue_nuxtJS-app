@@ -2,7 +2,7 @@ import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import prisma from "../prisma.js";
 import logger from "../utils/logger.js";
-import { generateAiText } from "./ai.js";
+import { generateAiText, isTransientGeminiOverload } from "./ai.js";
 import { mcpTools } from "./mcpTools.js";
  
 const BOT_EMAIL = process.env.STOCK_BOT_EMAIL || "stock-bot@chat.local";
@@ -171,6 +171,7 @@ const extractSymbol = (content) => {
   const match = text.match(SYMBOL_REGEX);
   return match?.[1] || null;
 };
+
 
 /** 建構含股票代號與對話脈絡的 Gemini MCP Prompt。 */
 const buildStockFollowupPrompt = (content, trackedSymbol, history = []) => {
@@ -344,7 +345,9 @@ export const triggerGroupStockAiReply = async ({ roomId, content, io }) => {
         stack: aiError?.stack,
       });
       replyPath = "fallback";
-      aiText = "目前無法透過 FinMind MCP 取得股票資料，請稍後重試。";
+      aiText = isTransientGeminiOverload(aiError)
+        ? "目前 AI 服務請求量較高，請稍後再試一次。"
+        : "目前無法透過 FinMind MCP 取得股票資料，請稍後重試。";
     }
 
     if (!aiText) {
