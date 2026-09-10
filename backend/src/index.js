@@ -14,6 +14,7 @@ import chatRoutes from "./routes/chat.js";
 import friendsRoutes from "./routes/friends.js";
 import profileRoutes from "./routes/profile.js";
 import aiRoutes from "./routes/ai.js";
+import { getMCPClient } from "../mcp/client.js";
 
 const app = express();
 const server = http.createServer(app);
@@ -120,5 +121,10 @@ server.listen(PORT, () => {
     address: `http://localhost:${PORT}`,
     websocket: `ws://localhost:${PORT}`,
     environment: process.env.NODE_ENV || 'development'
+  });
+
+  // 提前啟動 FinMind MCP 子程序，避免第一次股票查詢時使用者需等待 uvx 下載安裝套件。
+  getMCPClient().catch((error) => {
+    logger.error(`FinMind MCP 預熱失敗：${error?.message || String(error)}`);
   });
 });

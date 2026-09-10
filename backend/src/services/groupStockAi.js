@@ -337,9 +337,12 @@ export const triggerGroupStockAiReply = async ({ roomId, content, io }) => {
         { tools: [finMindMcpTool] }
       );
     } catch (aiError) {
-      logger.error(
-        `群組股票 MCP AI 回覆失敗：${aiError?.message || String(aiError)}`
-      );
+      logger.error("群組股票 MCP AI 回覆失敗", {
+        message: aiError?.message || String(aiError),
+        name: aiError?.name,
+        code: aiError?.code || aiError?.status,
+        stack: aiError?.stack,
+      });
       replyPath = "fallback";
       aiText = "目前無法透過 FinMind MCP 取得股票資料，請稍後重試。";
     }
