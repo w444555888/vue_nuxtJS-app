@@ -8,14 +8,31 @@ import { mcpTools } from "./mcpTools.js";
 const BOT_EMAIL = process.env.STOCK_BOT_EMAIL || "stock-bot@chat.local";
 const BOT_USERNAME_BASE = process.env.STOCK_BOT_USERNAME || "StockBot";
 
-const STOCK_KEYWORD_REGEX =
-  /(股票|股價|台股|上市|上櫃|興櫃|大盤|指數|加權|櫃買|漲跌|收盤|開盤|成交|量價|k線|技術線圖|均線|籌碼|法人|主力|外資|投信|自營商|買賣超|三大法人|融資|融券|借券|券資比|資券|當沖|零股|除權息|配息|殖利率|股利|eps|本益比|股價淨值比|營收|月增|年增|mom|yoy|財報|現金流|自由現金流|產業鏈|供應鏈|八大行庫|官股|新聞|公告|消息面|\bstock\b|\bquote\b|\bshares\b|\btaiex\b|\bpe\b|\bpb\b|\byield\b)/i;
-const QUOTE_INTENT_REGEX =
-  /(多少|幾塊|價格|報價|最新|目前|現價|昨收|今開|最高|最低|漲|跌|漲幅|跌幅|收盤|開盤|走勢|趨勢|狀態|行情|盤勢|量能|成交量|成交值|委買|委賣|內盤|外盤|\bprice\b|\bquote\b|\bup\b|\bdown\b|\btrend\b|\bvolume\b)/i;
-const STOCK_FOLLOWUP_REGEX =
-  /(目標價|合理價|估值|高估|低估|買點|賣點|進場|出場|停利|停損|支撐|壓力|突破|回檔|區間|本益比|殖利率|股價淨值比|配息|股利|財報|營收|毛利率|營益率|淨利率|eps|現金流|自由現金流|月增|年增|mom|yoy|新聞|公告|題材|產業鏈|供應鏈|八大行庫|官股|法人買賣超|外資買賣超|投信買賣超|自營商買賣超|三大法人|籌碼|融資融券|風險|建議|分析|評估|可以買|要不要買|值不值得|可不可以進場)/i;
-const STOCK_FUZZY_CONTEXT_REGEX =
-  /(法人|三大法人|買超|賣超|外資|投信|自營商|主力|籌碼|融資|融券|借券|券資比|當沖|量縮|量增|爆量|套牢|解套|停利|停損|支撐|壓力|突破|回測|回檔|填息|除息|除權|配股|配息|股息|殖利率|本益比|股價淨值比|營收|月增|年增|mom|yoy|財報|eps|現金流|自由現金流|新聞|公告|產業鏈|供應鏈|八大行庫|官股|taiex|加權指數|櫃買指數|盤勢|技術面|基本面|消息面)/i;
+// 用於尚未建立股票對話時，辨識是否應啟動股票 Bot。
+// 中文關鍵字以清單管理，避免多組 Regex 內容重複且難以維護。
+const STOCK_INTENT_KEYWORDS = [
+  // 市場、行情與交易
+  "股票", "股價", "台股", "上市", "上櫃", "興櫃", "大盤", "指數", "加權", "櫃買",
+  "漲跌", "收盤", "開盤", "成交", "量價", "k線", "技術線圖", "均線", "多少", "幾塊",
+  "價格", "報價", "最新", "目前", "現價", "昨收", "今開", "最高", "最低", "漲",
+  "跌", "漲幅", "跌幅", "走勢", "趨勢", "狀態", "行情", "盤勢", "量能", "成交量",
+  "成交值", "委買", "委賣", "內盤", "外盤", "量縮", "量增", "爆量",
+  // 籌碼與交易制度
+  "籌碼", "法人", "主力", "外資", "投信", "自營商", "買賣超", "買超", "賣超", "三大法人",
+  "融資", "融券", "借券", "券資比", "資券", "當沖", "零股", "八大行庫", "官股",
+  // 股利、財務與基本面
+  "除權息", "除息", "除權", "配股", "配息", "股息", "殖利率", "股利", "本益比", "股價淨值比",
+  "營收", "月增", "年增", "財報", "現金流", "自由現金流", "毛利率", "營益率", "淨利率",
+  "技術面", "基本面", "消息面",
+  // 分析與投資決策
+  "目標價", "合理價", "估值", "高估", "低估", "買點", "賣點", "進場", "出場", "停利",
+  "停損", "支撐", "壓力", "突破", "回測", "回檔", "套牢", "解套", "填息", "區間",
+  "風險", "建議", "分析", "評估", "可以買", "要不要買", "值不值得", "可不可以進場",
+  // 事件與題材
+  "產業鏈", "供應鏈", "新聞", "公告", "題材",
+];
+const ENGLISH_STOCK_INTENT_REGEX =
+  /\b(?:stock|quote|shares|taiex|pe|pb|yield|price|up|down|trend|volume|eps|mom|yoy)\b/i;
 const STOCK_SESSION_END_REGEX =
   /^(結束|結束對話|結束股票對話|停止|停止股票對話|先這樣|不用了|bye|end|stop|quit)$/i;
 const STOCK_SESSION_RESET_REGEX =
@@ -111,28 +128,9 @@ const containsFuzzyStockIntent = (text) => {
     return false;
   }
 
-  if (
-    STOCK_KEYWORD_REGEX.test(normalized) ||
-    QUOTE_INTENT_REGEX.test(normalized) ||
-    STOCK_FOLLOWUP_REGEX.test(normalized) ||
-    STOCK_FUZZY_CONTEXT_REGEX.test(normalized)
-  ) {
-    return true;
-  }
-
-  const fuzzyPairs = [
-    ["法人", "買賣超"],
-    ["外資", "買超"],
-    ["投信", "買超"],
-    ["自營商", "買超"],
-    ["融資", "增加"],
-    ["融券", "增加"],
-    ["台股", "趨勢"],
-    ["股票", "分析"],
-  ];
-
-  return fuzzyPairs.some(
-    ([left, right]) => normalized.includes(left) && normalized.includes(right)
+  return (
+    STOCK_INTENT_KEYWORDS.some((keyword) => normalized.includes(keyword)) ||
+    ENGLISH_STOCK_INTENT_REGEX.test(normalized)
   );
 };
 
@@ -150,6 +148,12 @@ const shouldTriggerStockAi = (content, roomId) => {
 
   if (isStockSessionResetMessage(text)) {
     return hasActiveSession;
+  }
+
+  // 已進入股票對話後，後續追問不必重複輸入股票關鍵字或代號；
+  // 使用者可用「結束」或「重置」離開／清除目前的對話狀態。
+  if (hasActiveSession) {
+    return true;
   }
 
   const hasSymbol = SYMBOL_REGEX.test(text);
