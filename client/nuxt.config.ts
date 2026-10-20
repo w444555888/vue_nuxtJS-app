@@ -3,6 +3,9 @@ const apiBase = process.env.API_BASE || 'http://127.0.0.1:3001'
 const socketUrl = process.env.SOCKET_URL || 'http://127.0.0.1:3001'
 const cloudinaryImageBase = process.env.CLOUDINARY_IMAGE_BASE || 'https://res.cloudinary.com'
 const wsDebug = process.env.WS_DEBUG === '1' || process.env.WS_DEBUG === 'true'
+const isCspSource = (value: string) => /^(https?|wss?):\/\//.test(value)
+const apiBaseCspSource = isCspSource(apiBase) ? [apiBase] : []
+const socketUrlCspSource = isCspSource(socketUrl) ? [socketUrl] : []
 
 export default defineNuxtConfig({
   compatibilityDate: '2025-07-15',
@@ -30,13 +33,13 @@ export default defineNuxtConfig({
       contentSecurityPolicy: {
         'connect-src': [
           "'self'",
-          apiBase,
-          socketUrl,
+          ...apiBaseCspSource,
+          ...socketUrlCspSource,
           'https:',
           'wss:',
           'ws:'
         ],
-        'img-src': ["'self'", 'data:', 'blob:', 'https:', apiBase, cloudinaryImageBase],
+        'img-src': ["'self'", 'data:', 'blob:', 'https:', ...apiBaseCspSource, cloudinaryImageBase],
         'media-src': ["'self'", 'blob:', 'https:', cloudinaryImageBase]
       }
     },
