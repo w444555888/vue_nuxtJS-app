@@ -1,6 +1,7 @@
 import express from "express";
 import { verifyToken } from "../middleware/auth.js";
 import { successResponse, errorResponse } from "../utils/responseHandler.js";
+import { requireTrustedOrigin } from "../utils/csrf.js";
 import logger from "../utils/logger.js";
 import {
   registerUser,
@@ -17,11 +18,8 @@ const router = express.Router();
 
 const REFRESH_COOKIE_NAME = process.env.REFRESH_COOKIE_NAME || "refreshToken";
 const isProduction = process.env.NODE_ENV === "production";
-
-const allowedSameSiteValues = new Set(["lax", "strict", "none"]);
-const rawSameSite = (process.env.REFRESH_COOKIE_SAMESITE || (isProduction ? "none" : "lax")).toLowerCase();
-const cookieSameSite = allowedSameSiteValues.has(rawSameSite) ? rawSameSite : (isProduction ? "none" : "lax");
-const cookieSecure = cookieSameSite === "none" ? true : isProduction;
+const cookieSameSite = process.env.REFRESH_COOKIE_SAMESITE || "lax";
+const cookieSecure = isProduction;
 
 const getRefreshCookieOptions = () => {
   const maxAgeDays = Number(process.env.REFRESH_TOKEN_COOKIE_DAYS || 7);
@@ -172,7 +170,7 @@ router.post("/verify", verifyToken, (req, res) => {
 });
 
 // 刷新 Access Token
-router.post("/refresh", async (req, res) => {
+router.post("/refresh", requireTrustedOrigin, async (req, res) => {
   const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
   if (!refreshToken) {
     const context = getAuditContextFromRequest(req);
@@ -219,7 +217,7 @@ router.post("/refresh", async (req, res) => {
 });
 
 // 登出
-router.post("/logout", async (req, res) => {
+router.post("/logout", requireTrustedOrigin, async (req, res) => {
   const refreshToken = req.cookies?.[REFRESH_COOKIE_NAME];
 
   try {

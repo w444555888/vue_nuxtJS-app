@@ -6,6 +6,14 @@
 - 使用者認證（JWT）
 - 實時聊天（WebSocket）
 - PostgreSQL 数据库
+
+## 認證 Token 架構
+
+- **Access Token**：回傳給前端，存放於 Pinia 記憶體；每次 API 請求透過 `Authorization: Bearer <access-token>` 標頭傳送。
+- **Refresh Token**：後端寫入 `HttpOnly` Cookie，只用於刷新 Access Token 與登出。
+- 使用 Refresh Token Cookie 的路由必須驗證 `Origin`，避免 CSRF；使用 Authorization 標頭的 API 不依賴 Cookie，不需套用 CSRF middleware。
+
+---
 - 密碼加密（bcryptjs）
 
 ---
