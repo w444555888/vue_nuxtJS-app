@@ -2,196 +2,29 @@ import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import prisma from "../prisma.js";
 import logger from "../utils/logger.js";
-import { generateAiText, isTransientGeminiOverload } from "./ai.js";
+import { GEMINI_MODEL, generateAiText, isTransientGeminiOverload } from "./ai.js";
 import { mcpTools } from "./mcpTools.js";
- 
+import { extractSymbol } from "./stockAi/intent.js";
+import {
+  clearRoomStockSession,
+  getRoomStockSession,
+  setRoomStockSession,
+} from "./stockAi/session.js";
+import { buildStockFollowupPrompt } from "./stockAi/prompt.js";
+import {
+  isStockSessionEndMessage,
+  isStockSessionResetMessage,
+  shouldTriggerStockAi,
+} from "./stockAi/trigger.js";
+
+// 向後相容：測試或既有程式仍可從 groupStockAi 匯入這些純函式。
+export { containsFuzzyStockIntent, extractSymbol } from "./stockAi/intent.js";
+export { buildStockFollowupPrompt } from "./stockAi/prompt.js";
+export { shouldTriggerStockAi } from "./stockAi/trigger.js";
+
+// 股票 AI 協調層：判斷觸發時機、呼叫 Gemini/FinMind，並將 Bot 回覆寫入與推送至聊天室。
 const BOT_EMAIL = process.env.STOCK_BOT_EMAIL || "stock-bot@chat.local";
 const BOT_USERNAME_BASE = process.env.STOCK_BOT_USERNAME || "StockBot";
-
-// 用於尚未建立股票對話時，辨識是否應啟動股票 Bot。
-// 中文關鍵字以清單管理，避免多組 Regex 內容重複且難以維護。
-const STOCK_INTENT_KEYWORDS = [
-  // 市場、行情與交易
-  "股票", "股價", "台股", "上市", "上櫃", "興櫃", "大盤", "指數", "加權", "櫃買",
-  "漲跌", "收盤", "開盤", "成交", "量價", "k線", "技術線圖", "均線", "多少", "幾塊",
-  "價格", "報價", "最新", "目前", "現價", "昨收", "今開", "最高", "最低", "漲",
-  "跌", "漲幅", "跌幅", "走勢", "趨勢", "狀態", "行情", "盤勢", "量能", "成交量",
-  "成交值", "委買", "委賣", "內盤", "外盤", "量縮", "量增", "爆量",
-  // 籌碼與交易制度
-  "籌碼", "法人", "主力", "外資", "投信", "自營商", "買賣超", "買超", "賣超", "三大法人",
-  "融資", "融券", "借券", "券資比", "資券", "當沖", "零股", "八大行庫", "官股",
-  // 股利、財務與基本面
-  "除權息", "除息", "除權", "配股", "配息", "股息", "殖利率", "股利", "本益比", "股價淨值比",
-  "營收", "月增", "年增", "財報", "現金流", "自由現金流", "毛利率", "營益率", "淨利率",
-  "技術面", "基本面", "消息面",
-  // 分析與投資決策
-  "目標價", "合理價", "估值", "高估", "低估", "買點", "賣點", "進場", "出場", "停利",
-  "停損", "支撐", "壓力", "突破", "回測", "回檔", "套牢", "解套", "填息", "區間",
-  "風險", "建議", "分析", "評估", "可以買", "要不要買", "值不值得", "可不可以進場",
-  // 事件與題材
-  "產業鏈", "供應鏈", "新聞", "公告", "題材",
-];
-const ENGLISH_STOCK_INTENT_REGEX =
-  /\b(?:stock|quote|shares|taiex|pe|pb|yield|price|up|down|trend|volume|eps|mom|yoy)\b/i;
-const STOCK_SESSION_END_REGEX =
-  /^(結束|結束對話|結束股票對話|停止|停止股票對話|先這樣|不用了|bye|end|stop|quit)$/i;
-const STOCK_SESSION_RESET_REGEX =
-  /^(重置|重置對話|重置股票對話|清除股票對話|reset)$/i;
-
-const SYMBOL_REGEX = /(?:^|\D)(\d{4})(?:\D|$)/; // 提取 4 碼股票代號，確保前後不是數字，避免誤抓其他數字串。
-const STOCK_SESSION_TTL_MS = 15 * 60 * 1000; // 股票對話狀態的有效期限，15 分鐘內有互動則持續有效，超過則自動失效。
-const STOCK_SESSION_HISTORY_LIMIT = 4;
-const STOCK_SESSION_TURN_MAX_LENGTH = 600;
-
-const roomStockSessions = new Map(); // roomId -> { trackedSymbol, updatedAt, history }
-
-/** 將聊天室 ID 轉為 Session Map 的 key。 */
-const getRoomSessionKey = (roomId) => String(roomId);
-
-/** 取得尚未過期的房間股票對話狀態。 */
-const getRoomStockSession = (roomId) => {
-  const session = roomStockSessions.get(getRoomSessionKey(roomId)) || null;
-  if (!session) {
-    return null;
-  }
-
-  const updatedAtMs = Date.parse(session.updatedAt || "");
-  if (!Number.isFinite(updatedAtMs) || Date.now() - updatedAtMs > STOCK_SESSION_TTL_MS) {
-    clearRoomStockSession(roomId);
-    return null;
-  }
-
-  return session;
-};
-
-/** 壓縮並限制儲存於對話歷史的文字長度。 */
-const compactStockSessionText = (value) => {
-  const text = String(value || "").replace(/\s+/g, " ").trim();
-  return text.slice(0, STOCK_SESSION_TURN_MAX_LENGTH);
-};
-
-/** 更新房間追蹤股票與最近問答歷史。 */
-const setRoomStockSession = (roomId, trackedSymbol, turn = null) => {
-  const previousSession = getRoomStockSession(roomId);
-  const isSameSymbol = previousSession?.trackedSymbol === trackedSymbol;
-  const history = isSameSymbol && Array.isArray(previousSession?.history)
-    ? previousSession.history.slice(-STOCK_SESSION_HISTORY_LIMIT)
-    : [];
-
-  const question = compactStockSessionText(turn?.question);
-  const reply = compactStockSessionText(turn?.reply);
-  if (question && reply) {
-    history.push({ question, reply });
-  }
-
-  roomStockSessions.set(getRoomSessionKey(roomId), {
-    trackedSymbol: trackedSymbol || null,
-    updatedAt: new Date().toISOString(),
-    history: history.slice(-STOCK_SESSION_HISTORY_LIMIT),
-  });
-};
-
-/** 將近期問答歷史格式化為 Gemini Prompt 文字。 */
-const formatStockSessionHistory = (history = []) => {
-  if (!Array.isArray(history) || history.length === 0) {
-    return "無（這是本輪股票對話的第一個問題）";
-  }
-
-  return history
-    .map((turn, index) => `第 ${index + 1} 輪問題：${turn.question}\n第 ${index + 1} 輪回答摘要：${turn.reply}`)
-    .join("\n");
-};
-
-/** 清除房間的股票對話狀態。 */
-const clearRoomStockSession = (roomId) => {
-  roomStockSessions.delete(getRoomSessionKey(roomId));
-};
-
-/** 判斷是否為結束股票對話的指令。 */
-const isStockSessionEndMessage = (content) => {
-  return STOCK_SESSION_END_REGEX.test(String(content || "").trim());
-};
-
-/** 判斷是否為重置股票對話的指令。 */
-const isStockSessionResetMessage = (content) => {
-  return STOCK_SESSION_RESET_REGEX.test(String(content || "").trim());
-};
-
-/** 依股票關鍵字判斷文字是否具有股票查詢意圖。 */
-const containsFuzzyStockIntent = (text) => {
-  const normalized = String(text || "")
-    .toLowerCase()
-    .replace(/\s+/g, "")
-    .trim();
-
-  if (!normalized) {
-    return false;
-  }
-
-  return (
-    STOCK_INTENT_KEYWORDS.some((keyword) => normalized.includes(keyword)) ||
-    ENGLISH_STOCK_INTENT_REGEX.test(normalized)
-  );
-};
-
-/** 判斷群組訊息是否需要觸發股票 AI。 */
-const shouldTriggerStockAi = (content, roomId) => {
-  const text = String(content || "").trim();
-  if (!text) {
-    return false;
-  }
-
-  const hasActiveSession = Boolean(getRoomStockSession(roomId));
-  if (isStockSessionEndMessage(text)) {
-    return hasActiveSession;
-  }
-
-  if (isStockSessionResetMessage(text)) {
-    return hasActiveSession;
-  }
-
-  // 已進入股票對話後，後續追問不必重複輸入股票關鍵字或代號；
-  // 使用者可用「結束」或「重置」離開／清除目前的對話狀態。
-  if (hasActiveSession) {
-    return true;
-  }
-
-  const hasSymbol = SYMBOL_REGEX.test(text);
-  if (hasSymbol) {
-    return true;
-  }
-
-  if (containsFuzzyStockIntent(text)) {
-    return true;
-  }
-
-  // 沒有股票相關關鍵字時，不觸發 Bot，避免打擾一般群聊。
-  return false;
-};
-
-/** 從使用者訊息提取四碼台股代號。 */
-const extractSymbol = (content) => {
-  const text = String(content || "");
-  const match = text.match(SYMBOL_REGEX);
-  return match?.[1] || null;
-};
-
-
-/** 建構含股票代號與對話脈絡的 Gemini MCP Prompt。 */
-const buildStockFollowupPrompt = (content, trackedSymbol, history = []) => {
-  return [
-    "你是台股分析助手，請使用繁體中文回覆。",
-    "你可使用 FinMind 官方 MCP 工具取得即時與歷史資料。涉及行情、法人、財報、營收、股利、新聞、產業、期貨、指數或比較時，必須先查工具資料再回答。",
-    "若下方已解析股票代號，查詢該個股時直接使用該代號；每次呼叫 query_dataset 都必須帶入相同的 data_id，且股價等歷史資料須帶入合理的 start_date。不可省略 data_id。",
-    "回答規則：簡潔、不要杜撰數字、提及資料來源 FinMind 與查詢資料日期。",
-    "請延續下方近期對話；本次工具結果優先於先前回答。",
-    "最後一行固定加上：以上資訊僅供參考，非投資建議。",
-    `目前追蹤股票代號：${trackedSymbol || "未知"}`,
-    `本輪個股查詢 data_id：${trackedSymbol || "尚未提供"}`,
-    `近期股票對話：${formatStockSessionHistory(history)}`,
-    `使用者問題：${String(content || "").trim()}`,
-  ].join("\n");
-};
 
 /** 取得或建立用於發送股票回覆的 Bot 帳號。 */
 const ensureBotUser = async () => {
@@ -280,6 +113,8 @@ const emitBotMessage = (io, roomId, botMessage) => {
 
 /** 處理群組股票訊息並建立、儲存及推送 Bot 回覆。 */
 export const triggerGroupStockAiReply = async ({ roomId, content, io }) => {
+  let stockAiStatusStarted = false;
+
   try {
     if (!shouldTriggerStockAi(content, roomId)) {
       return;
@@ -334,12 +169,45 @@ export const triggerGroupStockAiReply = async ({ roomId, content, io }) => {
 
     let aiText = "";
     let replyPath = "gemini-finmind-mcp";
+    const aiStartedAt = Date.now();
+    let mcpToolReady = false;
 
     try {
+      // 只在實際開始 Gemini／FinMind 查詢時顯示狀態，避免一般提示訊息產生無意義動畫。
+      io.to(`room_${roomId}`).emit("stock_ai_status", {
+        roomId,
+        status: "thinking",
+        message: "股票 AI 正在查詢 FinMind 資料並整理回覆…",
+      });
+      stockAiStatusStarted = true;
+
       const finMindMcpTool = await mcpTools.getGeminiTool();
+      mcpToolReady = true;
       aiText = await generateAiText(
         buildStockFollowupPrompt(content, effectiveSymbol, relevantHistory),
-        { tools: [finMindMcpTool] }
+        { tools: [finMindMcpTool] },
+        {
+          onSuccess: (metrics) => {
+            logger.info(`LLM_METRIC ${JSON.stringify({
+              event: "stock_ai_completed",
+              model: GEMINI_MODEL,
+              roomId,
+              stockSymbol: effectiveSymbol,
+              mcpToolReady,
+              ...metrics,
+            })}`);
+          },
+          onError: (metrics) => {
+            logger.error(`LLM_METRIC ${JSON.stringify({
+              event: "stock_ai_failed",
+              model: GEMINI_MODEL,
+              roomId,
+              stockSymbol: effectiveSymbol,
+              mcpToolReady,
+              ...metrics,
+            })}`);
+          },
+        }
       );
     } catch (aiError) {
       logger.error("群組股票 MCP AI 回覆失敗", {
@@ -359,6 +227,16 @@ export const triggerGroupStockAiReply = async ({ roomId, content, io }) => {
       aiText = "目前無法透過 FinMind MCP 取得股票資料，請稍後重試。";
     }
 
+    logger.info(`LLM_FLOW ${JSON.stringify({
+      event: "stock_ai_reply",
+      model: GEMINI_MODEL,
+      roomId,
+      stockSymbol: effectiveSymbol,
+      replyPath,
+      mcpToolReady,
+      totalLatencyMs: Date.now() - aiStartedAt,
+    })}`);
+
     setRoomStockSession(roomId, effectiveSymbol, {
       question: content,
       reply: aiText,
@@ -377,5 +255,12 @@ export const triggerGroupStockAiReply = async ({ roomId, content, io }) => {
       error: error?.message,
       stack: error?.stack,
     });
+  } finally {
+    if (stockAiStatusStarted) {
+      io.to(`room_${roomId}`).emit("stock_ai_status", {
+        roomId,
+        status: "idle",
+      });
+    }
   }
 };

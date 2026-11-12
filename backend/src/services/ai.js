@@ -98,10 +98,21 @@ const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const GEMINI_RETRY_ATTEMPTS = 2;
 const GEMINI_RETRY_BASE_DELAY_MS = 1000;
 
+const getGeminiTokenUsage = (result) => {
+  const usage = result?.usageMetadata || {};
+
+  return {
+    inputTokens: usage.promptTokenCount ?? null,
+    outputTokens: usage.candidatesTokenCount ?? null,
+    totalTokens: usage.totalTokenCount ?? null,
+  };
+};
+
 // 共用的 Gemini 文字生成入口；股票服務可透過 config 傳入 MCP tools。
 // 遇到可重試錯誤（429/500/503/504）時，依指數輪詢（含隨機抖動）自動重試。
-export const generateAiText = async (contents, config = {}) => {
+export const generateAiText = async (contents, config = {}, observability = {}) => {
   const ai = await getGeminiClient();
+  const startedAt = Date.now();
 
   let lastError;
   for (let attempt = 0; attempt < GEMINI_RETRY_ATTEMPTS; attempt += 1) {
@@ -111,11 +122,23 @@ export const generateAiText = async (contents, config = {}) => {
         contents,
         config,
       });
-      return extractGeminiText(result);
+      const text = extractGeminiText(result);
+      observability.onSuccess?.({
+        ...getGeminiTokenUsage(result),
+        latencyMs: Date.now() - startedAt,
+        attempts: attempt + 1,
+      });
+      return text;
     } catch (error) {
       lastError = error;
       const isLastAttempt = attempt === GEMINI_RETRY_ATTEMPTS - 1;
       if (isLastAttempt || !isTransientGeminiOverload(error)) {
+        observability.onError?.({
+          latencyMs: Date.now() - startedAt,
+          attempts: attempt + 1,
+          errorCode: error?.code || error?.status || null,
+          errorMessage: error?.message || String(error),
+        });
         throw error;
       }
       const backoffMs = GEMINI_RETRY_BASE_DELAY_MS * 2 ** attempt + Math.random() * 300;

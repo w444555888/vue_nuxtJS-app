@@ -72,6 +72,12 @@
           </div>
         </div>
       </div>
+      <div v-if="isStockAiThinking" class="stock-ai-thinking" role="status" aria-live="polite">
+        <div class="stock-ai-thinking-dots" aria-hidden="true">
+          <span></span><span></span><span></span>
+        </div>
+        <span>{{ stockAiStatusMessage }}</span>
+      </div>
     </div>
 
     <!-- 右鍵菜單 -->
@@ -316,11 +322,13 @@ const {
   onRoomMissedMessages,
   onMessageUpdated,
   onMessageDeleted,
+  onStockAiStatus,
   onConnect,
   offReceiveMessage,
   offRoomMissedMessages,
   offMessageUpdated,
   offMessageDeleted,
+  offStockAiStatus,
   offConnect
 } = useSocket()
 const authStore = useAuthStore()
@@ -328,9 +336,12 @@ let roomMessageListener: ((data: any) => void) | null = null
 let roomMissedMessagesListener: ((data: any[]) => void) | null = null
 let messageUpdatedListener: ((data: any) => void) | null = null
 let messageDeletedListener: ((data: any) => void) | null = null
+let stockAiStatusListener: ((data: any) => void) | null = null
 let connectListener: ((recovered: boolean) => void) | null = null
 let roomSyncPromise: Promise<void> | null = null
 const joinedRoomId = ref<number | null>(null)
+const isStockAiThinking = ref(false)
+const stockAiStatusMessage = ref('股票 AI 正在查詢 FinMind 資料並整理回覆…')
 
 const applyCreatedMessage = (data: any) => {
   if (data?.roomId !== props.room.id) {
@@ -644,6 +655,18 @@ onMounted(async () => {
     applyDeletedMessage(data)
   }
 
+  stockAiStatusListener = (data: any) => {
+    if (Number(data?.roomId) !== props.room.id) {
+      return
+    }
+
+    isStockAiThinking.value = data?.status === 'thinking'
+    if (typeof data?.message === 'string' && data.message.trim()) {
+      stockAiStatusMessage.value = data.message
+    }
+    nextTick(() => scrollToBottom())
+  }
+
   connectListener = (recovered: boolean) => {
     if (recovered) {
       // Socket.IO 已恢復房間與遺漏封包，只記錄目前加入狀態，不重送 join_room。
@@ -659,6 +682,7 @@ onMounted(async () => {
   onRoomMissedMessages(roomMissedMessagesListener)
   onMessageUpdated(messageUpdatedListener)
   onMessageDeleted(messageDeletedListener)
+  onStockAiStatus(stockAiStatusListener)
   onConnect(connectListener)
   
   // 先取得後端快照，再加入 WS 並補上快照交界的訊息。
@@ -696,6 +720,11 @@ onUnmounted(() => {
     messageDeletedListener = null
   }
 
+  if (stockAiStatusListener) {
+    offStockAiStatus(stockAiStatusListener)
+    stockAiStatusListener = null
+  }
+
   if (connectListener) {
     offConnect(connectListener)
     connectListener = null
@@ -710,6 +739,7 @@ watch(() => props.room.id, async (_, oldRoomId) => {
 
   joinedRoomId.value = null
   replyTarget.value = null
+  isStockAiThinking.value = false
   chatStore.setCurrentRoom(props.room)
   await syncRoomSnapshotAndJoin()
 }, { immediate: false })
@@ -867,6 +897,54 @@ watch(() => props.room.id, async (_, oldRoomId) => {
   display: flex;
   flex-direction: column;
   gap: 12px;
+}
+
+/* FinMind MCP 查詢中的暫態提示，不寫入訊息資料庫。 */
+.stock-ai-thinking {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 4px 48px;
+  padding: 9px 12px;
+  border: 1px solid #dfe3fb;
+  border-radius: 12px;
+  background: #f5f6ff;
+  color: #5360b9;
+  font-size: 13px;
+}
+
+.stock-ai-thinking-dots {
+  display: inline-flex;
+  gap: 3px;
+
+  span {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+    animation: stock-ai-dot 1.2s ease-in-out infinite;
+
+    &:nth-child(2) {
+      animation-delay: 0.15s;
+    }
+
+    &:nth-child(3) {
+      animation-delay: 0.3s;
+    }
+  }
+}
+
+@keyframes stock-ai-dot {
+  0%, 60%, 100% {
+    opacity: 0.35;
+    transform: translateY(0);
+  }
+
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
 }
 
 .message-item {

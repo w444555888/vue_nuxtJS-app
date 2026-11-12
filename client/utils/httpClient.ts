@@ -50,6 +50,7 @@ const createHttpClient = (): AxiosInstance => {
   const instance = axios.create({
     baseURL: apiBase,
     withCredentials: true,
+    timeout: 10000,
     headers: {
       'Content-Type': 'application/json'
     }
@@ -92,7 +93,6 @@ const createHttpClient = (): AxiosInstance => {
         // 避免對 /refresh 和 /logout 端點重試
         if (originalRequest.url?.includes('/auth/refresh') || originalRequest.url?.includes('/auth/logout')) {
           authStore.clearAuth()
-          router.push('/login')
           return Promise.reject(errorResponse)
         }
 

@@ -312,7 +312,7 @@ export default (io) => {
         // 廣播到聊天室
         io.to(`room_${roomId}`).emit("receive_message", event);
 
-        // 群組聊天主流程走 WebSocket，股票 AI 自動回覆也需掛在這裡。
+        // 群組聊天主流程走 WebSocket，股票 AI 自動回覆
         triggerGroupStockAiReply({
           roomId,
           content: message.content,

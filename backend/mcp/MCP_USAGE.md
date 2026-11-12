@@ -6,14 +6,16 @@
 
 聊天室訊息
 -> `src/socket.js`
--> `src/services/groupStockAi.js`
+-> `src/services/groupStockAi.js`（協調流程）
+-> `src/services/stockAi/`（意圖、Session、Prompt）
 -> `src/services/mcpTools.js`
--> `mcp/client.js`
 -> FinMind 官方 `uvx finmind-mcp`
 -> FinMind API
 -> Gemini 產生回覆
 
-`groupStockAi.js` 負責股票對話啟動、15 分鐘 Session、最近 4 輪問答摘要與聊天室 Bot 回覆。
+`groupStockAi.js` 是協調層，負責股票對話啟動、呼叫 Gemini／FinMind，以及將 Bot 回覆寫入並推送聊天室。
+
+`src/services/stockAi/intent.js` 集中管理股票意圖與 4 碼代號判斷；`trigger.js` 管理觸發與結束／重置指令；`session.js` 管理 15 分鐘 Session 與最近 4 輪問答摘要；`prompt.js` 管理 Gemini 的股票資料查詢規則與 Prompt。
 
 `mcp/client.js` 以 `uvx finmind-mcp` 啟動官方 MCP。它將既有的 `FINMIND_API_TOKEN` 映射為官方 MCP 使用的 `FINMIND_TOKEN`，也可直接設定 `FINMIND_TOKEN`。
 

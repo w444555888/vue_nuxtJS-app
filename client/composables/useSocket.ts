@@ -535,6 +535,13 @@ export const useSocket = () => {
     }
   }
 
+  // 股票 AI 透過此事件通知 FinMind 查詢／回覆整理中的暫態狀態。
+  const onStockAiStatus = (callback: (data: any) => void) => {
+    if (socketRef.value) {
+      socketRef.value.on('stock_ai_status', callback)
+    }
+  }
+
   // 監聽使用者加入
   const onUserJoined = (callback: (data: any) => void) => {
     if (socketRef.value) {
@@ -591,6 +598,17 @@ export const useSocket = () => {
       }
 
       socketRef.value.off('message_deleted')
+    }
+  }
+
+  const offStockAiStatus = (callback?: (data: any) => void) => {
+    if (socketRef.value) {
+      if (callback) {
+        socketRef.value.off('stock_ai_status', callback)
+        return
+      }
+
+      socketRef.value.off('stock_ai_status')
     }
   }
 
@@ -843,12 +861,14 @@ export const useSocket = () => {
     onRoomMissedMessages,
     onMessageUpdated,
     onMessageDeleted,
+    onStockAiStatus,
     onUserJoined,
     onUserLeft,
     offReceiveMessage,
     offRoomMissedMessages,
     offMessageUpdated,
     offMessageDeleted,
+    offStockAiStatus,
     onConnect,
     offConnect,
     setUserId,
