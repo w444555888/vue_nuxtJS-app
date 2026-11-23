@@ -1,5 +1,6 @@
-import logger from "../utils/logger.js";
-import { extractGeminiText, GEMINI_MODEL, getGeminiClient } from "./ai.js";
+import { randomUUID } from "node:crypto";
+import logger from "../../utils/logger.js";
+import { GEMINI_MODEL, generateAiText, isTransientGeminiOverload } from "../core/gemini.js";
 
 const createError = (message, status = 400) => {
   const error = new Error(message);
@@ -19,14 +20,11 @@ const SYSTEM_PROMPT = `你是一個專業聊天軟體（Chat App）的客服助�
 
 const getErrorStatus = (error) => Number(error?.status || 0);
 const getErrorMessage = (error) => String(error?.message || "");
-
-const buildFallbackReply = (mainMessage, subMessage) =>
-  [mainMessage, subMessage || "若問題緊急，請聯絡技術客服：w444555888w@gmail.com"].join("\n");
+const buildFallbackReply = (mainMessage, subMessage) => [mainMessage, subMessage || "若問題緊急，請聯絡技術客服：w444555888w@gmail.com"].join("\n");
 
 const getCustomerServiceFallback = (error) => {
   const status = getErrorStatus(error);
   const message = getErrorMessage(error);
-
   if ([401, 403].includes(status) || /UNAUTHENTICATED|PERMISSION_DENIED|leaked/i.test(message)) {
     return buildFallbackReply("AI 客服目前暫時無法連線（模型金鑰需要更新），請稍後再試。");
   }
@@ -42,7 +40,6 @@ const getCustomerServiceFallback = (error) => {
   if (status === 400 && /INVALID_ARGUMENT|FAILED_PRECONDITION|格式錯誤|國家\/地區/i.test(message)) {
     return buildFallbackReply("AI 客服配置需要更新，服務暫時無法使用。");
   }
-
   return null;
 };
 
@@ -50,33 +47,56 @@ export const getAiChatResponse = async (message, _options = {}) => {
   if (!message || typeof message !== "string" || message.trim().length === 0) {
     throw createError("訊息內容不能為空", 400);
   }
-
   if (message.length > 100) {
     throw createError("訊息長度不能超過 100 字", 400);
   }
 
-  try {
-    const ai = await getGeminiClient();
-    const result = await ai.models.generateContent({
-      model: GEMINI_MODEL,
-      contents: `${SYSTEM_PROMPT}\n\n用戶問題：${message}`,
-    });
+  const requestId = randomUUID();
 
-    return {
-      message: extractGeminiText(result),
-      stockData: null,
-      timestamp: new Date(),
-    };
+  try {
+    const responseText = await generateAiText(
+      `${SYSTEM_PROMPT}\n\n用戶問題：${message}`,
+      {},
+      {
+        onSuccess: (metrics) => {
+          logger.info(`LLM_METRIC ${JSON.stringify({
+            event: "customer_service_completed",
+            feature: "customer_service",
+            requestId,
+            model: GEMINI_MODEL,
+            ...metrics,
+          })}`);
+        },
+        onError: ({ latencyMs, attempts, errorCode }) => {
+          logger.error(`LLM_METRIC ${JSON.stringify({
+            event: "customer_service_failed",
+            feature: "customer_service",
+            requestId,
+            model: GEMINI_MODEL,
+            latencyMs,
+            attempts,
+            errorCode,
+          })}`);
+        },
+      },
+    );
+
+    return { message: responseText, stockData: null, timestamp: new Date() };
   } catch (error) {
     logger.error("Gemini 客服 API 錯誤", {
+      requestId,
+      feature: "customer_service",
       status: error?.status,
-      message: error?.message,
-      errorCode: error?.errorCode,
+      errorCode: error?.code || error?.errorCode || null,
     });
-
     const fallback = getCustomerServiceFallback(error);
-    if (fallback) {
-      return { message: fallback, stockData: null, timestamp: new Date() };
+    if (fallback) return { message: fallback, stockData: null, timestamp: new Date() };
+    if (isTransientGeminiOverload(error)) {
+      return {
+        message: buildFallbackReply("AI 客服目前請求量較高，請稍後再試。"),
+        stockData: null,
+        timestamp: new Date(),
+      };
     }
     throw error;
   }

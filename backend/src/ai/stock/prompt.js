@@ -1,18 +1,12 @@
-/** 將近期問答摘要格式化為 Gemini 可讀的對話脈絡。 */
 const formatStockSessionHistory = (history = []) => {
   if (!Array.isArray(history) || history.length === 0) {
     return "無（這是本輪股票對話的第一個問題）";
   }
-
   return history
     .map((turn, index) => `第 ${index + 1} 輪問題：${turn.question}\n第 ${index + 1} 輪回答摘要：${turn.reply}`)
     .join("\n");
 };
 
-/**
- * 建構股票 AI 的系統規則與本輪問題。
- * 即時／歷史數據必須由 FinMind MCP 取得，不能以模型內部知識補數字。
- */
 export const buildStockFollowupPrompt = (content, trackedSymbol, history = []) => {
   return [
     "你是台股分析助手，請使用繁體中文回覆。",

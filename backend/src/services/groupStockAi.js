@@ -2,25 +2,19 @@ import crypto from "crypto";
 import bcrypt from "bcryptjs";
 import prisma from "../prisma.js";
 import logger from "../utils/logger.js";
-import { GEMINI_MODEL, generateAiText, isTransientGeminiOverload } from "./ai.js";
-import { mcpTools } from "./mcpTools.js";
-import { extractSymbol } from "./stockAi/intent.js";
+import { GEMINI_MODEL, isTransientGeminiOverload } from "../ai/core/gemini.js";
+import { extractSymbol } from "../ai/stock/intent.js";
 import {
   clearRoomStockSession,
   getRoomStockSession,
   setRoomStockSession,
-} from "./stockAi/session.js";
-import { buildStockFollowupPrompt } from "./stockAi/prompt.js";
+} from "../ai/stock/session.js";
 import {
   isStockSessionEndMessage,
   isStockSessionResetMessage,
   shouldTriggerStockAi,
-} from "./stockAi/trigger.js";
-
-// 向後相容：測試或既有程式仍可從 groupStockAi 匯入這些純函式。
-export { containsFuzzyStockIntent, extractSymbol } from "./stockAi/intent.js";
-export { buildStockFollowupPrompt } from "./stockAi/prompt.js";
-export { shouldTriggerStockAi } from "./stockAi/trigger.js";
+} from "../ai/stock/trigger.js";
+import { runStockAgent } from "../ai/stock/agent.js";
 
 // 股票 AI 協調層：判斷觸發時機、呼叫 Gemini/FinMind，並將 Bot 回覆寫入與推送至聊天室。
 const BOT_EMAIL = process.env.STOCK_BOT_EMAIL || "stock-bot@chat.local";
@@ -181,19 +175,17 @@ export const triggerGroupStockAiReply = async ({ roomId, content, io }) => {
       });
       stockAiStatusStarted = true;
 
-      const finMindMcpTool = await mcpTools.getGeminiTool();
-      mcpToolReady = true;
-      aiText = await generateAiText(
-        buildStockFollowupPrompt(content, effectiveSymbol, relevantHistory),
-        { tools: [finMindMcpTool] },
-        {
+      const agentResult = await runStockAgent({
+        content,
+        effectiveSymbol,
+        history: relevantHistory,
+        observability: {
           onSuccess: (metrics) => {
             logger.info(`LLM_METRIC ${JSON.stringify({
               event: "stock_ai_completed",
               model: GEMINI_MODEL,
               roomId,
               stockSymbol: effectiveSymbol,
-              mcpToolReady,
               ...metrics,
             })}`);
           },
@@ -203,14 +195,17 @@ export const triggerGroupStockAiReply = async ({ roomId, content, io }) => {
               model: GEMINI_MODEL,
               roomId,
               stockSymbol: effectiveSymbol,
-              mcpToolReady,
               ...metrics,
             })}`);
           },
-        }
-      );
+        },
+      });
+
+      aiText = agentResult.text;
+      replyPath = agentResult.replyPath;
+      mcpToolReady = agentResult.mcpToolReady;
     } catch (aiError) {
-      logger.error("群組股票 MCP AI 回覆失敗", {
+      logger.error("群組股票 AI 回覆失敗", {
         message: aiError?.message || String(aiError),
         name: aiError?.name,
         code: aiError?.code || aiError?.status,
@@ -219,12 +214,12 @@ export const triggerGroupStockAiReply = async ({ roomId, content, io }) => {
       replyPath = "fallback";
       aiText = isTransientGeminiOverload(aiError)
         ? "目前 AI 服務請求量較高，請稍後再試一次。"
-        : "目前無法透過 FinMind MCP 取得股票資料，請稍後重試。";
+        : "目前無法取得股票資料，請稍後重試。";
     }
 
     if (!aiText) {
       replyPath = "fallback";
-      aiText = "目前無法透過 FinMind MCP 取得股票資料，請稍後重試。";
+      aiText = "目前無法取得股票資料，請稍後重試。";
     }
 
     logger.info(`LLM_FLOW ${JSON.stringify({

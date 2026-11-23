@@ -1,9 +1,9 @@
 import "dotenv/config";
 import assert from "node:assert/strict";
 import test from "node:test";
-import { containsFuzzyStockIntent, extractSymbol } from "../src/services/stockAi/intent.js";
-import { buildStockFollowupPrompt } from "../src/services/stockAi/prompt.js";
-import { shouldTriggerStockAi } from "../src/services/stockAi/trigger.js";
+import { containsFuzzyStockIntent, extractSymbol } from "../src/ai/stock/intent.js";
+import { buildStockFollowupPrompt } from "../src/ai/stock/prompt.js";
+import { shouldTriggerStockAi } from "../src/ai/stock/trigger.js";
 
 // 固定題庫：不呼叫外部模型或 FinMind，驗證股票 AI 的觸發規則與 Prompt 護欄。
 const intentCases = [
