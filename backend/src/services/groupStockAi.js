@@ -15,6 +15,7 @@ import {
   shouldTriggerStockAi,
 } from "../ai/stock/trigger.js";
 import { runStockAgent } from "../ai/stock/agent.js";
+import { createFinMindStockChart, isStockChartRequest } from "../ai/stock/chart.js";
 
 // 股票 AI 協調層：判斷觸發時機、呼叫 Gemini/FinMind，並將 Bot 回覆寫入與推送至聊天室。
 const BOT_EMAIL = process.env.STOCK_BOT_EMAIL || "stock-bot@chat.local";
@@ -73,11 +74,11 @@ const ensureBotRoomMembership = async (botUserId, roomId) => {
 };
 
 /** 將股票 Bot 回覆儲存為聊天室訊息。 */
-const saveBotMessage = async (botUserId, roomId, content) => {
-  return prisma.message.create({
+const saveBotMessage = async (botUserId, roomId, content, imageUrl = null) => {
+  const botMessage = await prisma.message.create({
     data: {
       content,
-      imageUrl: null,
+      imageUrl,
       userId: botUserId,
       roomId,
     },
@@ -87,6 +88,7 @@ const saveBotMessage = async (botUserId, roomId, content) => {
       },
     },
   });
+  return botMessage;
 };
 
 /** 透過 Socket.IO 將 Bot 訊息即時推送至聊天室。 */
@@ -165,43 +167,50 @@ export const triggerGroupStockAiReply = async ({ roomId, content, io }) => {
     let replyPath = "gemini-finmind-mcp";
     const aiStartedAt = Date.now();
     let mcpToolReady = false;
+    let aiImageUrl = null;
+    const chartRequest = isStockChartRequest(content);
 
     try {
       // 只在實際開始 Gemini／FinMind 查詢時顯示狀態，避免一般提示訊息產生無意義動畫。
       io.to(`room_${roomId}`).emit("stock_ai_status", {
         roomId,
         status: "thinking",
-        message: "股票 AI 正在查詢 FinMind 資料並整理回覆…",
+        message: chartRequest
+          ? "正在查詢 FinMind 日線資料並產生 K 線圖…"
+          : "股票 AI 正在查詢 FinMind 資料並整理回覆…",
       });
       stockAiStatusStarted = true;
 
-      const agentResult = await runStockAgent({
-        content,
-        effectiveSymbol,
-        history: relevantHistory,
-        observability: {
-          onSuccess: (metrics) => {
-            logger.info(`LLM_METRIC ${JSON.stringify({
-              event: "stock_ai_completed",
-              model: GEMINI_MODEL,
-              roomId,
-              stockSymbol: effectiveSymbol,
-              ...metrics,
-            })}`);
+      const agentResult = chartRequest
+        ? await createFinMindStockChart({ symbol: effectiveSymbol, content })
+        : await runStockAgent({
+          content,
+          effectiveSymbol,
+          history: relevantHistory,
+          observability: {
+            onSuccess: (metrics) => {
+              logger.info(`LLM_METRIC ${JSON.stringify({
+                event: "stock_ai_completed",
+                model: GEMINI_MODEL,
+                roomId,
+                stockSymbol: effectiveSymbol,
+                ...metrics,
+              })}`);
+            },
+            onError: (metrics) => {
+              logger.error(`LLM_METRIC ${JSON.stringify({
+                event: "stock_ai_failed",
+                model: GEMINI_MODEL,
+                roomId,
+                stockSymbol: effectiveSymbol,
+                ...metrics,
+              })}`);
+            },
           },
-          onError: (metrics) => {
-            logger.error(`LLM_METRIC ${JSON.stringify({
-              event: "stock_ai_failed",
-              model: GEMINI_MODEL,
-              roomId,
-              stockSymbol: effectiveSymbol,
-              ...metrics,
-            })}`);
-          },
-        },
-      });
+        });
 
       aiText = agentResult.text;
+      aiImageUrl = agentResult.imageUrl || null;
       replyPath = agentResult.replyPath;
       mcpToolReady = agentResult.mcpToolReady;
     } catch (aiError) {
@@ -212,7 +221,9 @@ export const triggerGroupStockAiReply = async ({ roomId, content, io }) => {
         stack: aiError?.stack,
       });
       replyPath = "fallback";
-      aiText = isTransientGeminiOverload(aiError)
+      aiText = chartRequest
+        ? "目前無法產生 K 線圖，請稍後重試；若持續發生，請確認 FinMind 與圖片儲存服務設定。"
+        : isTransientGeminiOverload(aiError)
         ? "目前 AI 服務請求量較高，請稍後再試一次。"
         : "目前無法取得股票資料，請稍後重試。";
     }
@@ -224,9 +235,10 @@ export const triggerGroupStockAiReply = async ({ roomId, content, io }) => {
 
     logger.info(`LLM_FLOW ${JSON.stringify({
       event: "stock_ai_reply",
-      model: GEMINI_MODEL,
+      model: chartRequest ? "finmind-svg" : GEMINI_MODEL,
       roomId,
       stockSymbol: effectiveSymbol,
+      chartRequest,
       replyPath,
       mcpToolReady,
       totalLatencyMs: Date.now() - aiStartedAt,
@@ -243,7 +255,7 @@ export const triggerGroupStockAiReply = async ({ roomId, content, io }) => {
       replyPath,
     });
 
-    const botMessage = await saveBotMessage(botUser.id, roomId, aiText);
+    const botMessage = await saveBotMessage(botUser.id, roomId, aiText, aiImageUrl);
     emitBotMessage(io, roomId, botMessage);
   } catch (error) {
     logger.error("群組股票 AI 自動回覆失敗", {

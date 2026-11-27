@@ -17,6 +17,14 @@
 -> `src/ai/core/gemini.js`
 -> 回到 `groupStockAi.js` 存檔並透過 Socket推送
 
+### K 線圖
+
+群組內輸入例如「幫我畫 2330 近三個月 K 線圖」，會走圖表專用分支，不依賴 Gemini產生圖片：
+
+`groupStockAi.js` -> `src/ai/stock/chart.js` -> MCP `query_dataset(TaiwanStockPrice)` -> 解析 FinMind Markdown OHLCV表格 -> ECharts SVG SSR繪製含 MA5/MA20與成交量的K線圖 -> Cloudinary -> `message.imageUrl` -> Socket聊天室。
+
+日期預設近三個月，可指定日期區間，最多查詢一年。圖表使用既有聊天室 Cloudinary設定；若上傳失敗，Bot會回覆圖表服務設定提示。一般文字股票問答仍走 Gemini + `mcpToTool()` 路徑。
+
 `groupStockAi.js` 是應用層協調器，不放置模型實作。它負責股票 Bot帳號、聊天室會員與訊息資料庫，以及 `receive_message`／`stock_ai_status` 即時推送。
 
 `src/ai/stock/intent.js` 集中管理股票意圖與 4 碼代號；`trigger.js` 管理觸發與結束／重置指令；`session.js` 管理 15 分鐘 Session與最近 4 輪問答摘要；`prompt.js` 管理查詢規則與Prompt；`agent.js`負責實際 Agent編排。
@@ -38,6 +46,8 @@ AI能力統一實作於 `src/ai/`。`src/services/groupStockAi.js` 是 Socket呼
 
 - `FINMIND_MCP_COMMAND`：覆寫 `uvx` 指令完整路徑。
 - `UV_SYSTEM_CERTS=1`：Windows 公司憑證／自簽憑證網路環境下載套件時使用系統憑證。
+
+圖表上傳沿用聊天媒體的 Cloudinary設定：`CLOUDINARY_URL` 或 `CLOUDINARY_CLOUD_NAME`、`CLOUDINARY_API_KEY`、`CLOUDINARY_API_SECRET`。
 
 ## 安裝與驗證
 

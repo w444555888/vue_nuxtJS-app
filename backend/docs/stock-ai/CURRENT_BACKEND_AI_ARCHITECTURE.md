@@ -6,7 +6,7 @@
 
 目前後端有兩條 AI 功能路徑：
 
-1. **群組股票 AI**：Socket訊息觸發 → 股票意圖與 Session判斷 → Stock Agent → Gemini呼叫 FinMind MCP工具 → Bot訊息寫入資料庫 → Socket推送回聊天室。
+1. **群組股票 AI**：Socket訊息觸發 → 股票意圖與 Session判斷 → 一般查詢走 Stock Agent/Gemini/MCP；圖表請求走 FinMind MCP日價查詢/後端 SVG繪圖/Cloudinary → Bot訊息寫入資料庫 → Socket推送回聊天室。
 2. **AI客服**：已登入使用者呼叫 HTTP API → 客服 Agent → Gemini → API回傳客服文字。
 
 股票路徑使用 MCP；客服路徑不使用 MCP。RAG、向量資料庫、Fine-tuning、LangGraph、Mastra、Langfuse、Promptfoo目前都沒有接入。
@@ -32,6 +32,7 @@ backend/
 │  │  │  └─ customerService.js       客服 Prompt、輸入長度驗證、Gemini呼叫與錯誤Fallback
 │  │  ├─ stock/
 │  │  │  ├─ agent.js                 股票 Agent；輸入檢查、Prompt、MCP工具、輸出檢查
+│  │  │  ├─ chart.js                 K線圖意圖、FinMind日價Markdown解析、ECharts SVG SSR與Cloudinary上傳
 │  │  │  ├─ intent.js                股票關鍵字、4碼股票代號判斷
 │  │  │  ├─ trigger.js               觸發、結束與重置規則
 │  │  │  ├─ session.js               程序內房間股票追問狀態
@@ -57,11 +58,12 @@ sequenceDiagram
     participant Socket as src/socket.js
     participant Bridge as services/groupStockAi.js
     participant Rules as ai/stock intent/trigger/session
-    participant Agent as ai/stock/agent.js
+    participant Agent as ai/stock/agent.js 或 chart.js
     participant Gemini as ai/core/gemini.js
     participant Tool as ai/tools/finmind.js
     participant MCP as mcp/client.js / uvx finmind-mcp
     participant DB as Prisma / PostgreSQL
+    participant Media as Cloudinary
 
     UI->>Socket: send_message
     Socket->>DB: 保存使用者訊息
@@ -69,7 +71,8 @@ sequenceDiagram
     Socket->>Bridge: triggerGroupStockAiReply（背景呼叫）
     Bridge->>Rules: 判斷意圖、代號、Session、控制指令
     Bridge->>UI: stock_ai_status: thinking
-    Bridge->>Agent: content、symbol、history
+    Bridge->>Agent: 一般股票問題或圖表請求
+    alt 一般股票問答
     Agent->>Tool: 取得 FinMind Gemini Tool
     Tool->>MCP: getMCPClient / mcpToTool
     Agent->>Gemini: Prompt + Tool設定
@@ -77,8 +80,15 @@ sequenceDiagram
     MCP-->>Gemini: FinMind查詢結果
     Gemini-->>Agent: 回答文字與觀測 callback
     Agent-->>Bridge: text、replyPath、mcpToolReady
-    Bridge->>DB: 建立/加入 Bot並儲存回覆
-    Bridge-->>UI: receive_message（Bot回答）
+    else K線圖請求
+    Agent->>MCP: query_dataset(TaiwanStockPrice, data_id, 日期區間)
+    MCP-->>Agent: FinMind Markdown OHLCV表格
+    Agent->>Agent: 解析日價並用 ECharts SVG SSR繪製（K線、MA5/MA20、成交量）
+    Agent->>Media: 上傳 SVG圖表並取得 secure_url
+    Agent-->>Bridge: 說明文字、imageUrl
+    end
+    Bridge->>DB: 建立/加入 Bot並儲存文字與 imageUrl
+    Bridge-->>UI: receive_message（Bot文字/圖片）
     Bridge-->>UI: stock_ai_status: idle
 ```
 
@@ -89,6 +99,7 @@ sequenceDiagram
 - `結束`、`重置`等命令只在有效 Session時處理。
 - 股票 Agent把 MCP Tool交給 Gemini SDK；資料集選擇/工具呼叫由模型SDK流程處理，FinMind MCP再向 FinMind API取資料。
 - 群組橋接建立/尋找 Bot使用者、加入聊天室、將 AI回答寫入 `message`，並沿用既有 `receive_message` Socket事件格式。
+- K線圖請求不經 Gemini文字生成：直接以 FinMind `query_dataset` 查詢 `TaiwanStockPrice`，解析回傳 Markdown表格後使用 ECharts SSR candlestick/line/bar series產生 SVG（日K、MA5/MA20、成交量），上傳 Cloudinary後透過既有 `imageUrl` 顯示；預設近三個月，最多一年。
 - Agent成功/失敗 callback及群組橋接會寫入 Winston結構化字串/日誌，包含延遲、Token、重試次數、symbol、replyPath等欄位。
 
 ## 4. AI客服實際流程
@@ -112,6 +123,7 @@ sequenceDiagram
 |---|---|---|
 | `src/services/groupStockAi.js` | 聊天室 Bot、Prisma讀寫、Socket狀態與訊息事件、股票流程協調/Fallback | 不建立 MCP Client，也不定義 Gemini SDK本身 |
 | `src/ai/stock/agent.js` | 股票問題安全檢查、組合 Prompt、取得工具、呼叫生成入口、檢查生成文字 | 不存取 Prisma/Socket，不管理 Bot使用者 |
+| `src/ai/stock/chart.js` | 圖表意圖、日價查詢、FinMind Markdown解析、ECharts SVG SSR K線繪製、Cloudinary上傳 | 不呼叫 Gemini，也不讀寫聊天室資料庫 |
 | `src/ai/core/gemini.js` | 單例 Gemini Client、文字抽取、暫時錯誤重試、Token與延遲 callback | 不處理聊天資料庫或客服HTTP回應 |
 | `src/ai/tools/finmind.js` | `mcpToTool()` adapter | 不自行啟動另一個 FinMind服務 |
 | `backend/mcp/client.js` | MCP Client、stdio transport、`uvx finmind-mcp`啟動、Token環境映射與部分日誌遮罩 | 不管理 UI/Socket |
@@ -133,6 +145,8 @@ sequenceDiagram
 - `express`、JWT認證與專案 response handler：客服 HTTP入口。
 - `socket.io`：群組聊天室即時事件。
 - `@prisma/client`：Bot使用者、房間會員與訊息存取。
+- `cloudinary`：儲存 K線 SVG圖表並回傳可由前端載入的安全圖片 URL；沿用聊天室既有 Cloudinary設定。
+- `echarts`：後端 SVG SSR繪製K線、技術均線與成交量，不需瀏覽器 DOM或 Canvas。
 - `bcryptjs`、`crypto`：建立 Bot帳號密碼雜湊與隨機密碼。
 - `winston`：服務日誌與AI執行指標。
 
@@ -142,7 +156,7 @@ sequenceDiagram
 
 `npm run eval:stock-ai`執行 `node --test test/stock-ai.eval.test.js`。題目涵蓋意圖判斷、股票代號解析、觸發、Prompt規則與最近問答脈絡；不呼叫 Gemini或 FinMind，因此不產生模型/API流量費用。
 
-它目前不是端到端 Agent測試：沒有驗證真實MCP工具呼叫、工具返回資料與最終回答一致性、資料來源/日期是否確實出現在回答、或真人品質評分。
+它目前不是端到端 Agent測試：沒有驗證真實MCP工具呼叫、工具返回資料與最終回答一致性、資料來源/日期是否確實出現在回答、Cloudinary上傳或真人品質評分。圖表的日期解析、Markdown資料解析與SVG輸出有純本機單元測試。
 
 ## 9. 現況限制與注意事項
 
@@ -153,6 +167,7 @@ sequenceDiagram
 5. **目前沒有 RAG**：無文件載入、chunking、embedding、Retriever或向量資料庫。
 6. **目前沒有 Fine-tuning/Agent框架/LLMOps平台**：Agent是原生 JS編排；指標寫Winston日誌，沒有集中 Trace、成本儀表板、Prompt版本平台。
 7. **外部股票資料依賴 FinMind MCP可用性與模型工具呼叫**：MCP連不上或模型故障時會回Fallback文字，不會提供離線股價資料。
+8. **K線圖依賴 FinMind與Cloudinary**：沒有 FinMind Token或 Cloudinary設定時，圖表無法完成；範圍最多一年。SVG由後端繪製，不是 Gemini生成圖片，也不代表投資建議。
 
 ## 10. 重要環境設定
 
